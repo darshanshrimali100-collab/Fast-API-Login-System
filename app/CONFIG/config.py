@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent  # config.py -> app/ -> parent
-env_path = PROJECT_ROOT / "config.env"
+env_path = r'D:\DARSHAN SHRIMALI\JOB\SUMMENCE TECHNOLOGIES\FAST API LOGIN (JWT)\SOURCE CODE\API SOURCE_CODE\config.env'
 load_dotenv(dotenv_path=env_path)
 
 print("env path = ", env_path)
@@ -16,7 +16,11 @@ MAX_ATTEMPTS = int(os.getenv("MAX_ATTEMPTS", "5"))
 LOCK_TIME_MINUTES = int(os.getenv("LOCK_TIME_MINUTES", "1"))
 TEST_MODE = os.getenv("TEST", "false").lower() == "true"
 CORS_URL = os.getenv("CORS_URL")
+SMTP_MAIL = os.getenv("SMTP_MAIL")
+SMTP_PWD = os.getenv("SMTP_PWD")
+DB_PATH = os.getenv("DB_PATH")
 
 print("MAX_ATTEMPTS =", MAX_ATTEMPTS)
 print("LOCK_TIME_MINUTES =", LOCK_TIME_MINUTES)
 print("reading config file")
+print(DB_PATH)

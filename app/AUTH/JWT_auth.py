@@ -12,7 +12,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse
 from fastapi import Response
 from fastapi import Request
-from .config import SECRET_KEY, ACCESS_TOKEN_EXPIRE_MINUTES, SECURE_COOKIES
+from ..CONFIG.config import SECRET_KEY, ACCESS_TOKEN_EXPIRE_MINUTES, SECURE_COOKIES
 import secrets
 import string
 

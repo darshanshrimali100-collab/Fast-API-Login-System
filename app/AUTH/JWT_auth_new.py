@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Response, status, Request
 from app.database import Database
-from .config import SECRET_KEY, ACCESS_TOKEN_EXPIRE_MINUTES, SECURE_COOKIES,MAX_ATTEMPTS
+from ..CONFIG.config import SECRET_KEY, ACCESS_TOKEN_EXPIRE_MINUTES, SECURE_COOKIES,MAX_ATTEMPTS
 import jwt
 from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel, EmailStr
@@ -9,31 +9,22 @@ import string
 from fastapi import Depends, Header
 from fastapi import Query
 from fastapi import Cookie
+from app.AUTH.models import *
 
-class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
-
-class SignupRequest(BaseModel):
-    name: str
-    email: EmailStr
-    password: str
-
-class ForgotPasswordRequest(BaseModel):
-    email: EmailStr
-
-class ResetPasswordRequest(BaseModel):
-    email: EmailStr
-    reset_token: str
-    new_password: str
-
-class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str
-
-class ResetPasswordCombinedRequest(BaseModel):
-    reset_token: str
-    new_password: str
+class USER_COL:
+    UserId = 0
+    RoleId = 1
+    name = 2
+    email = 3
+    PasswordHash = 4
+    PasswordSalt = 5
+    token_v = 6
+    ActivationCode = 7
+    failed_attempts = 8
+    locked_until = 9
+    is_active = 10
+    CreatedAt = 11
+    UpdatedAt = 12
 
 SECRET_KEY = SECRET_KEY
 ALGORITHM = "HS256"
@@ -206,9 +197,9 @@ def login(payload: LoginRequest, response: Response):
         )
 
     # Reset attempts if lock expired
-    if user[7] >= MAX_ATTEMPTS:
+    if user[USER_COL.failed_attempts] >= MAX_ATTEMPTS:
         print("Lock expired, resetting failed attempts")
-        Database.reset_no_of_failed_attempts(user[0])
+        Database.reset_no_of_failed_attempts(user[USER_COL.UserId])
         # update user
         user = Database.get_user_by_email(email)
 
@@ -216,14 +207,14 @@ def login(payload: LoginRequest, response: Response):
     # 3. Password validation
     valid_user = Database.check_user(email, password)
     if not valid_user:
-        Database.handle_failed_login(email, user[7])
+        Database.handle_failed_login(email, user[USER_COL.failed_attempts])
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid Password, failed attempt."
         )
 
     # 4. Reset failed attempts
-    Database.reset_login_attempts(user[0])
+    Database.reset_login_attempts(user[USER_COL.UserId])
 
     # 5. Token version logic
     token_v = Database.get_token_version(email)
@@ -246,7 +237,11 @@ def login(payload: LoginRequest, response: Response):
 
     Database.activate_user(email)
 
-    return {"message": "Login successful"}
+    return {
+        "message": "Login successful",
+        "access_token": jwt_token,
+        "token_type": "bearer"
+        }
 
 @new_router.post("/logout")
 def Logout(request: Request, response: Response):
@@ -363,6 +358,9 @@ def activate_account(response: Response, id: str = Query(...)):
             max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
             path="/",
         )
+
+        #added, 2-jan-2026
+        Database.activate_user(email)
 
         return {
             "message": "Account activated successfully",
@@ -640,9 +638,9 @@ def user_detail(request: Request, response: Response):
 
     # 4. Return user details
     return {
-            "name": user[1],
-            "email": user[2],
-            "LoggedIn": user[9],
+            "name": user[USER_COL.name],
+            "email": user[USER_COL.email],
+            "LoggedIn": user[USER_COL.is_active],
             # Add other fields as required
         }
     

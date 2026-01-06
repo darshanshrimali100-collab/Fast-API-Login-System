@@ -5,7 +5,23 @@ import bcrypt
 import base64
 from typing import Optional
 from datetime import datetime, timezone, timedelta
-from .config import MAX_ATTEMPTS, LOCK_TIME_MINUTES
+from .CONFIG.config import MAX_ATTEMPTS, LOCK_TIME_MINUTES,SMTP_MAIL, SMTP_PWD,DB_PATH
+
+class USER_COL:
+    UserId = 0
+    RoleId = 1
+    name = 2
+    email = 3
+    PasswordHash = 4
+    PasswordSalt = 5
+    token_v = 6
+    ActivationCode = 7
+    failed_attempts = 8
+    locked_until = 9
+    is_active = 10
+    CreatedAt = 11
+    UpdatedAt = 12
+
 
 class Database:
     __db_is_connected = None
@@ -27,7 +43,7 @@ class Database:
                 """
                 UPDATE users
                 SET failed_attempts = 0
-                WHERE id = ?
+                WHERE UserId = ?
                 """,
                 (user_id,)
             )
@@ -44,7 +60,7 @@ class Database:
                 """
                 UPDATE users
                 SET failed_attempts = 0, locked_until = NULL
-                WHERE id = ?
+                WHERE UserId = ?
                 """,
                 (user_id,)
             )
@@ -53,7 +69,7 @@ class Database:
 
     @staticmethod
     def is_account_locked(user):
-        locked_until = user[8]
+        locked_until = user[USER_COL.locked_until] #8
         if locked_until is None:
             return False
 
@@ -104,7 +120,7 @@ class Database:
 
             print("verification_code_operations")
             cursor.execute(
-                "UPDATE users SET code = ? WHERE email = ?",
+                "UPDATE users SET ActivationCode = ? WHERE email = ?",
                 (code, email)
             )
             conn.commit()
@@ -119,7 +135,7 @@ class Database:
 
             print("verification_code_operations")
             cursor.execute(
-                "SELECT id, email FROM users WHERE code = ?",
+                "SELECT UserId, email FROM users WHERE ActivationCode = ?",
                 (code,)
             )
             user = cursor.fetchone()
@@ -134,7 +150,7 @@ class Database:
 
             print("verification_code_operations")
             cursor.execute(
-                "UPDATE users SET code = NULL WHERE email = ?",
+                "UPDATE users SET ActivationCode = NULL WHERE email = ?",
                 (email,)
             )
             conn.commit()
@@ -163,7 +179,7 @@ class Database:
             if user == None:
                 return False
             else:
-                return user[5]
+                return user[USER_COL.token_v] #6
         
     #dummy method, added - 16-DEC-2025
     @staticmethod
@@ -204,11 +220,11 @@ class Database:
             salt_b64_string = salt_b64.decode('utf-8')
 
             cursor.execute(
-            "UPDATE users SET password = ?, salt = ?, token_v = ? WHERE id = ?",
+            "UPDATE users SET PasswordHash = ?, PasswordSalt = ?, token_v = ? WHERE UserId = ?",
             (hashed_password, salt_b64_string, token_v, id)
             )
             conn.commit()
-            cursor.execute("SELECT * FROM users WHERE id = ?", (id,))
+            cursor.execute("SELECT * FROM users WHERE UserId = ?", (id,))
             return cursor.fetchone()
 
     @staticmethod
@@ -228,11 +244,11 @@ class Database:
             salt_b64_string = salt_b64.decode('utf-8')
 
             cursor.execute(
-            "UPDATE users SET password = ?, salt = ? WHERE id = ?",
+            "UPDATE users SET PasswordHash = ?, PasswordSalt = ? WHERE UserId = ?",
             (hashed_password, salt_b64_string, id)
             )
             conn.commit()
-            cursor.execute("SELECT * FROM users WHERE id = ?", (id,))
+            cursor.execute("SELECT * FROM users WHERE UserId = ?", (id,))
             return cursor.fetchone()
 
     @staticmethod
@@ -244,7 +260,7 @@ class Database:
             cursor = conn.cursor()
             print("get_user, user_id = ", id)
             cursor.execute(
-            "SELECT * FROM users WHERE id = ?", (id,)
+            "SELECT * FROM users WHERE UserId = ?", (id,)
             )
             conn.commit()
             return cursor.fetchone()
@@ -272,7 +288,7 @@ class Database:
             cursor = conn.cursor()
             print("get user - email = ", email)
             cursor.execute(
-            "SELECT id FROM users WHERE email = ?", (email,)
+            "SELECT UserId FROM users WHERE email = ?", (email,)
             )
             conn.commit()
             row = cursor.fetchone()
@@ -286,7 +302,8 @@ class Database:
     @classmethod
     def connect(cls):
         Database.fixed_salt = bcrypt.gensalt()
-        cls.__db_is_connected = sqlite3.connect("user.db", check_same_thread=False)
+        cls.__db_is_connected = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cls.__db_is_connected.row_factory = sqlite3.Row
         return cls.__db_is_connected
     
     @staticmethod
@@ -302,7 +319,7 @@ class Database:
             print(f"password = {password}, email = {email}")
             cursor.execute(
 
-                "SELECT id, email, password, salt FROM users WHERE email = ?",
+                "SELECT * FROM users WHERE email = ?",
                 (email,)
             )
             user = cursor.fetchone()
@@ -311,8 +328,8 @@ class Database:
             re_hashed = ""
             stored_hash = ""
             if user:
-                stored_hash = user[2]
-                salt_b64_string_from_db = user[3]                   
+                stored_hash = user[USER_COL.PasswordHash] #3
+                salt_b64_string_from_db = user[USER_COL.PasswordSalt]  #4                 
                 salt_bytes_recovered = base64.b64decode(salt_b64_string_from_db)
 
                 re_hashed = bcrypt.hashpw(password.encode(), salt_bytes_recovered).decode()
@@ -330,7 +347,7 @@ class Database:
                 return None
     
     @staticmethod
-    def Create_user(name: str, email: str, password: str, is_active=0):
+    def Create_user(name: str, email: str, password: str, is_active=0, RoleId=0):
 
         if Database.__db_is_connected == None:
             return {"message" : "db is not connected"}
@@ -338,7 +355,7 @@ class Database:
             conn = Database.__db_is_connected
             cursor = conn.cursor()
             
-            cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
+            cursor.execute("SELECT UserId FROM users WHERE email = ?", (email,))
             existing_user = cursor.fetchone()
 
             if existing_user:
@@ -354,8 +371,8 @@ class Database:
             salt_b64_string = salt_b64.decode('utf-8')
 
             cursor.execute(
-            "INSERT INTO users (name, email, password, salt ,is_active) VALUES (?, ?, ?, ?, ?)",
-            (name, email, hashed_password, salt_b64_string, is_active)
+            "INSERT INTO users (RoleID,name, email, PasswordHash, PasswordSalt ,is_active) VALUES (?,?, ?, ?, ?, ?)",
+            (RoleId,name, email, hashed_password, salt_b64_string, is_active)
             )
             conn.commit()
             cursor.execute("SELECT * FROM users WHERE email = ?", (email,))
@@ -368,11 +385,11 @@ class Database:
 
         msg = MIMEText(body)
         msg['Subject'] = subject
-        msg['From'] = "darshanshrimali100@gmail.com"
+        msg['From'] = SMTP_MAIL
         msg['To'] = to_email
 
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login("darshanshrimali100@gmail.com", "amxx vkxf isyl otso")
+            server.login(SMTP_MAIL, SMTP_PWD)
             server.send_message(msg)
 
     # added 17-Dec-2025
@@ -383,11 +400,11 @@ class Database:
 
         msg = MIMEText(body)
         msg['Subject'] = subject
-        msg['From'] = "darshanshrimali100@gmail.com"
+        msg['From'] = SMTP_MAIL
         msg['To'] = to_email
 
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login("darshanshrimali100@gmail.com", "amxx vkxf isyl otso")
+            server.login(SMTP_MAIL, SMTP_PWD)
             server.send_message(msg)
 
     @staticmethod
@@ -397,11 +414,11 @@ class Database:
 
         msg = MIMEText(body)
         msg['Subject'] = subject
-        msg['From'] = "darshanshrimali100@gmail.com"
+        msg['From'] = SMTP_MAIL
         msg['To'] = to_email
 
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login("darshanshrimali100@gmail.com", "amxx vkxf isyl otso")
+            server.login(SMTP_MAIL, SMTP_PWD)
             server.send_message(msg)
 
     @staticmethod
@@ -426,12 +443,12 @@ class Database:
             cursor = conn.cursor()
 
             print("checking user is_active in db")
-            cursor.execute("SELECT is_active FROM users WHERE email =? AND id =?", (email,user_id))
+            cursor.execute("SELECT is_active FROM users WHERE email =? AND UserId =?", (email,user_id))
             
             row = cursor.fetchone()
             if row is None:
                 return None 
-            return bool(row[0])
+            return bool(row[USER_COL.is_active]) #0
             
     @staticmethod
     def Deactivate_user( email):
@@ -465,7 +482,7 @@ class Database:
                 SELECT 1
                 FROM users
                 WHERE email = ?
-                AND id = ?
+                AND UserId = ?
                 AND JWT_Token = ?
                 """,
                 (email, user_id, JWT))
@@ -486,7 +503,7 @@ class Database:
                 UPDATE users
                 SET JWT_Token = ?, Expiry_time = ?
                 WHERE email = ?
-                  AND id = ?
+                  AND UserId = ?
                 """,
                 (JWT, Expiry, email, user_id)
             )
