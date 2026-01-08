@@ -35,4 +35,3 @@ class Admin_database:
             print("user role = ", role)
             return role
 
-

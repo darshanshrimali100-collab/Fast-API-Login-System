@@ -1,6 +1,6 @@
 from fastapi import HTTPException, status, APIRouter, Body
 from functools import wraps
-from app.database import Database, USER_COL
+from app.AUTH.database import Database, USER_COL
 from .database import Admin_database, USER_ROLE_COL
 from app.ADMIN.models import *
 

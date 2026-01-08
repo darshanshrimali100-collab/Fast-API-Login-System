@@ -6,7 +6,7 @@
 
 from fastapi import APIRouter
 from fastapi import Form, Query
-from app.database import Database
+from app.AUTH.database import Database
 import jwt
 from datetime import datetime, timezone, timedelta
 from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Response, status, Request
-from app.database import Database
+from app.AUTH.database import Database
 from ..CONFIG.config import SECRET_KEY, ACCESS_TOKEN_EXPIRE_MINUTES, SECURE_COOKIES,MAX_ATTEMPTS
 import jwt
 from datetime import datetime, timezone, timedelta
@@ -10,21 +10,21 @@ from fastapi import Depends, Header
 from fastapi import Query
 from fastapi import Cookie
 from app.AUTH.models import *
+from app.CORE.utility import *
 
 class USER_COL:
-    UserId = 0
+    email = 0
     RoleId = 1
     name = 2
-    email = 3
-    PasswordHash = 4
-    PasswordSalt = 5
-    token_v = 6
-    ActivationCode = 7
-    failed_attempts = 8
-    locked_until = 9
-    is_active = 10
-    CreatedAt = 11
-    UpdatedAt = 12
+    PasswordHash = 3
+    PasswordSalt = 4
+    token_v = 5
+    ActivationCode = 6
+    failed_attempts = 7
+    locked_until = 8
+    is_active = 9
+    CreatedAt = 10
+    UpdatedAt = 11
 
 SECRET_KEY = SECRET_KEY
 ALGORITHM = "HS256"
@@ -54,65 +54,6 @@ def generate_verification_code():
     chars = string.ascii_letters + string.digits
     return ''.join(secrets.choice(chars) for _ in range(10))
 
-def verify_user_jwt(token: str):
-    """
-    Verify a user's JWT against the server's secret key.
-
-    Returns the payload (decoded JWT) if valid,
-    or None if invalid/expired.
-    """
-    try:
-        print("verifying JWT token")
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        print("payload = ", payload)
-        # added - 16-DEC-2025
-        token_v = payload["version"]
-        email = payload["sub"]
-        print("user_token_v = ", token_v)
-        print("email = ", email)
-        token_v_db = Database.get_token_version(email)
-        print("token_v_db = ", token_v_db)
-
-        if not token_v:
-            return False
-        
-        if token_v == token_v_db:
-            return "verified"
-
-        # return payload  # payload contains user's data, e.g., {"sub": email, "exp": ...}
-    
-    except jwt.ExpiredSignatureError:
-        return "expired"
-    
-    except jwt.InvalidTokenError:
-        print("Invalid JWT")
-        return None
-
-def get_email_from_jwt(token: str):
-    try:
-        payload = jwt.decode(
-            token,
-            SECRET_KEY,
-            algorithms=[ALGORITHM]
-        )
-        return payload.get("sub")
-
-    except jwt.ExpiredSignatureError:
-        return None   # token expired
-
-    except jwt.InvalidTokenError:
-        return None   # invalid token
-
-def get_current_user_email(access_token: str = Cookie(None)):
-    if not access_token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
-    result = verify_user_jwt(access_token)
-    if result is None:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    email = get_email_from_jwt(access_token)
-    return email, result, access_token
 
 # added 26-Dec-2025
 def refresh_Token(token_v: str, email: str):
@@ -137,41 +78,6 @@ def refresh_Token(token_v: str, email: str):
         return {"message": "failed to rotate token"}
 
     return encoded_jwt
-
-# added 26-Dec-2025
-def verify_user_jwt(token: str):
-    """
-    Verify a user's JWT against the server's secret key.
-
-    Returns the payload (decoded JWT) if valid,
-    or None if invalid/expired.
-    """
-    try:
-        print("verifying JWT token")
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        print("payload = ", payload)
-        # added - 16-DEC-2025
-        token_v = payload["version"]
-        email = payload["sub"]
-        print("user_token_v = ", token_v)
-        print("email = ", email)
-        token_v_db = Database.get_token_version(email)
-        print("token_v_db = ", token_v_db)
-
-        if not token_v:
-            return False
-        
-        if token_v == token_v_db:
-            return "verified"
-
-        # return payload  # payload contains user's data, e.g., {"sub": email, "exp": ...}
-    
-    except jwt.ExpiredSignatureError:
-        return "expired"
-    
-    except jwt.InvalidTokenError:
-        print("Invalid JWT")
-        return None
 
 
 # Login/Logout
@@ -199,7 +105,7 @@ def login(payload: LoginRequest, response: Response):
     # Reset attempts if lock expired
     if user[USER_COL.failed_attempts] >= MAX_ATTEMPTS:
         print("Lock expired, resetting failed attempts")
-        Database.reset_no_of_failed_attempts(user[USER_COL.UserId])
+        Database.reset_no_of_failed_attempts(user[USER_COL.email])
         # update user
         user = Database.get_user_by_email(email)
 
@@ -214,7 +120,7 @@ def login(payload: LoginRequest, response: Response):
         )
 
     # 4. Reset failed attempts
-    Database.reset_login_attempts(user[USER_COL.UserId])
+    Database.reset_login_attempts(user[USER_COL.email])
 
     # 5. Token version logic
     token_v = Database.get_token_version(email)
@@ -330,7 +236,7 @@ def activate_account(response: Response, id: str = Query(...)):
                 detail="Invalid or expired activation code"
             )
 
-        email = record[1]
+        email = record[0]
 
         # 2. Delete verification code
         deleted = Database.verification_code_operations("delete", id, email)
@@ -441,21 +347,22 @@ def reset_password(payload: ResetPasswordRequest):
 
     # 1. Verify reset token again (important)
     record = Database.verification_code_operations("get", reset_token)
-    if not record or record[1] != email:
+    if not record or record[0] != email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid reset token"
         )
 
+    # commented, Darshan Shrimali, 8-Jan-2026
     # 2. Update password
-    user_id = Database.get_user_id(email)
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
+    #user_id = Database.get_user_id(email)
+    #if not user_id:
+    #    raise HTTPException(
+    #        status_code=status.HTTP_404_NOT_FOUND,
+    #        detail="User not found"
+    #    )
 
-    updated = Database.update_user(user_id, new_password)
+    updated = Database.update_user(email, new_password)
     if not updated:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -495,15 +402,16 @@ def reset_password_combined(response: Response, payload: ResetPasswordCombinedRe
 
     email = record[1]
 
+    # commented, Darshan Shrimali, 8-Jan-2026
     # 2. Update password
-    user_id = Database.get_user_id(email)
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
+    #user_id = Database.get_user_id(email)
+    #if not user_id:
+    #    raise HTTPException(
+    #        status_code=status.HTTP_404_NOT_FOUND,
+    #        detail="User not found"
+    #    )
 
-    updated = Database.update_user(user_id, new_password)
+    updated = Database.update_user(email, new_password)
     if not updated:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -547,7 +455,7 @@ def change_password(
     payload: ChangePasswordRequest,
     user=Depends(get_current_user_email)
 ):
-    email, jwt_status, token = user
+    email = user
     print("payload = ", payload)
     # 1. Verify current password
     valid = Database.check_user(email, payload.current_password)
@@ -557,12 +465,13 @@ def change_password(
             detail="Current password is incorrect"
         )
 
-    user_id = Database.get_user_id(email)
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
+    # commented, Darshan Shrimali, 8-Jan-2026
+    # user_id = Database.get_user_id(email)
+    # if not user_id:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_404_NOT_FOUND,
+    #         detail="User not found"
+    #     )
 
     # 2. Token version increment (invalidate old sessions)
     token_v = Database.get_token_version(email)
@@ -570,7 +479,7 @@ def change_password(
 
     # 3. Update password + token version
     updated = Database.update_user_and_token(
-        user_id,
+        email,
         payload.new_password,
         token_v
     )
@@ -636,6 +545,7 @@ def user_detail(request: Request, response: Response):
             detail="User not found"
         )
 
+    print("user = ", user[USER_COL.name])
     # 4. Return user details
     return {
             "name": user[USER_COL.name],

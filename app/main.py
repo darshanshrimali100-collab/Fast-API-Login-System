@@ -5,17 +5,21 @@ startup pe db se connect karna
 from fastapi import FastAPI
 from app.AUTH.JWT_auth import router, signup_router
 from app.AUTH.JWT_auth_new import new_router
-from app.database import Database
+from app.AUTH.database import Database
 from app.ADMIN.database import Admin_database
-from fastapi.responses import FileResponse
+from app.PROJECTS.database import Projects_database
+from fastapi.responses import FileResponse, JSONResponse
 from datetime import datetime, timezone, timedelta
 from fastapi.staticfiles import StaticFiles
 from .CONFIG.config import TEST_MODE, CORS_URL
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Request
-from fastapi.responses import JSONResponse
 from app.ADMIN.admin import router as admin_router
+from app.PROJECTS.projects import router as project_router
 import base64
+from fastapi import FastAPI, Request, HTTPException
+from app.CORE.error_logger import ErrorLoggerDB
+from app.CORE.utility import *
 
 app = FastAPI(title="Login")
 
@@ -78,6 +82,37 @@ if TEST_MODE:
 else:
     app.include_router(new_router)
     app.include_router(admin_router)
+    app.include_router(project_router)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    try:
+        body = None
+        if request.method in ("POST", "PUT", "PATCH"):
+            try:
+                body = await request.json()
+            except:
+                body = None
+
+        access_token = request.cookies.get("access_token")
+        user_email = get_email_from_jwt(access_token) if access_token else None
+
+        ErrorLoggerDB.log_error(
+            method_name=f"{request.method} {request.url.path}",
+            user_email=user_email,
+            request_body=body,
+            error_code=exc.status_code,
+            error_detail=exc.detail
+        )
+    except Exception as e:
+        print("Error logger failed:", e)
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail}
+    )
+
 
 
 def init_userDB():
@@ -86,11 +121,10 @@ def init_userDB():
 
     # Users table create if not exists
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            UserId INTEGER PRIMARY KEY AUTOINCREMENT,
+        CREATE TABLE IF NOT EXISTS S_Users (
+            UserEmail TEXT PRIMARY KEY UNIQUE,
             RoleId INTEGER NOT NULL,
-            name TEXT,      
-            email TEXT UNIQUE,
+            DisplayName TEXT,      
             PasswordHash TEXT,
             PasswordSalt BLOB,
             token_v INTEGER DEFAULT 0,
@@ -109,10 +143,10 @@ def init_userDB():
     salt_b64_string = salt_b64.decode('utf-8')
 
     # Insert sample user (only first time)
-    cursor.execute("SELECT * FROM users WHERE email='test@mail.com'")
+    cursor.execute("SELECT * FROM S_Users WHERE UserEmail='test@mail.com'")
     if not cursor.fetchone():
         cursor.execute(
-            "INSERT INTO users (RoleId,name, email, PasswordHash, PasswordSalt) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO S_Users (RoleId,DisplayName, UserEmail, PasswordHash, PasswordSalt) VALUES (?, ?, ?, ?, ?)",
             ("1","AdminUser","test@mail.com", hash_password, salt_b64_string)
         )
 
@@ -157,6 +191,59 @@ def init_AdminDB():
 
     conn.commit()
 
+#added 6-JAN-2026
+def init_ProjectDB():
+    conn = Projects_database.connect()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS S_Projects (
+            ProjectId INTEGER PRIMARY KEY AUTOINCREMENT,
+            UserEmail TEXT NOT NULL,
+            ProjectName TEXT NOT NULL,
+            ProjectStatus TEXT,
+            CreatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+            UpdatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (UserEmail, ProjectName)
+        )
+    """)
+
+    cursor.execute(
+        """
+        SELECT ProjectId
+        FROM S_Projects
+        WHERE UserEmail = ? AND ProjectName = ?
+        """,
+        ("test@mail.com", "Default Project")
+    )
+
+    if cursor.fetchone() is None:
+        cursor.execute(
+            """
+            INSERT INTO S_Projects (UserEmail, ProjectName)
+            VALUES (?, ?)
+            """,
+            ("test@mail.com", "Default Project")
+        )
+
+    conn.commit()
+
+
+def init_ErrorDB():
+
+    conn = Database.connect()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS S_UserErrors (
+            MethodName TEXT NOT NULL,
+            UserEmail TEXT,
+            RequestBody TEXT,
+            ErrorCode INTEGER NOT NULL,
+            ErrorDetail TEXT
+        )
+    """)
+    conn.commit()
+
 
 
 # 1. DB CONNECT ON STARTUP
@@ -165,6 +252,8 @@ def init_AdminDB():
 def startup_db():
     init_userDB()
     init_AdminDB()
+    init_ProjectDB()
+    init_ErrorDB()
 
 @app.get("/")
 def Login():
