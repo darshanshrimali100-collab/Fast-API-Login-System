@@ -13,7 +13,7 @@ from app.CORE.utility import *
 router = APIRouter(prefix="/projects")
 
 
-@router.get("/user_projects")
+@router.get("/user_projects") #POST
 def get_user_projects(
     response: Response,
     email: str = Depends(get_current_user_email)
@@ -22,17 +22,18 @@ def get_user_projects(
 
     current_project = None  # will hold { project_id, project_name }
 
+    print(projects)
     project_list = []
     for project in projects:
         project_list.append({
-            "project_id": project["ProjectId"],
-            "project_name": project["ProjectName"]
+            "project_id": project[0], #"ProjectId"
+            "project_name": project[1] #"ProjectName"
         })
 
-        if project["ProjectStatus"] == "active":
+        if project[2] == "active": #"ProjectStatus"
             current_project = {
-                "project_id": project["ProjectId"],
-                "project_name": project["ProjectName"]
+                "project_id": project[0], #"ProjectId"
+                "project_name": project[1] #"ProjectName"
             }
 
     return {
@@ -72,7 +73,7 @@ def create_project_route(payload: CreateProjectRequest, response: Response, emai
 def open_project_route(payload: OpenProjectRequest, response: Response, email: str = Depends(get_current_user_email)):
 
 
-    # 1. Validate access
+    # 1. Validate access, DELETE
     project = Projects_database.get_project_for_user(payload.project_id, email)
     if project is None:
         raise HTTPException(
@@ -84,7 +85,7 @@ def open_project_route(payload: OpenProjectRequest, response: Response, email: s
     if result == None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="unable to open project now"
+            detail="unable to open project now" # detail: Project not found or access denied
         )
 
     # 2. Return project info
@@ -101,7 +102,7 @@ def open_project_route(payload: OpenProjectRequest, response: Response, email: s
 def rename_project_route(payload: RenameProjectRequest, response: Response, email: str = Depends(get_current_user_email)):
     
 
-    # 1. Ownership check
+    # 1. Ownership check, #delete
     if not Projects_database.user_is_project_owner(payload.project_id, email):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -133,7 +134,7 @@ def rename_project_route(payload: RenameProjectRequest, response: Response, emai
 def delete_project_route(payload: DeleteProjectRequest, response: Response, email: str = Depends(get_current_user_email)):
     
 
-    # 1. Ownership check
+    # 1. Ownership check ,Delete
     if not Projects_database.user_is_project_owner(payload.project_id, email):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

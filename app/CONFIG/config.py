@@ -2,6 +2,11 @@ import os
 from dotenv import load_dotenv
 from pathlib import Path
 
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+master_db = str(BASE_DIR / "database.sqlite3")
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent  # config.py -> app/ -> parent
 env_path = r'D:\DARSHAN SHRIMALI\JOB\SUMMENCE TECHNOLOGIES\FAST API LOGIN (JWT)\SOURCE CODE\API SOURCE_CODE\config.env'
 load_dotenv(dotenv_path=env_path)

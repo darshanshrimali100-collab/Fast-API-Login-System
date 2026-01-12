@@ -3,6 +3,7 @@ from app.AUTH.database import Database
 import json
 import sqlite3
 from ..CONFIG.config import DB_PATH
+from app.CORE.connection import master_connection
 
 class ErrorLoggerDB:
 
@@ -19,18 +20,16 @@ class ErrorLoggerDB:
         Insert an error log into S_UserErrors table.
         """
         try:
-            conn = cls.connect()
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO S_UserErrors (MethodName, UserEmail, RequestBody, ErrorCode, ErrorDetail)
-                VALUES (?, ?, ?, ?, ?)
-            """, (
-                method_name,
-                user_email,
-                json.dumps(request_body) if request_body else None,
-                error_code,
-                error_detail
-            ))
-            conn.commit()
+            with master_connection() as cursor:
+                cursor.execute("""
+                    INSERT INTO S_UserErrors (MethodName, UserEmail, RequestBody, ErrorCode, ErrorDetail)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    method_name,
+                    user_email,
+                    json.dumps(request_body) if request_body else None,
+                    error_code,
+                    error_detail
+                ))
         except Exception as e:
             print("Failed to log error:", e)

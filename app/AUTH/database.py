@@ -1,11 +1,17 @@
-import sqlite3
 import smtplib
 from email.mime.text import MIMEText
 import bcrypt
-import base64
 from typing import Optional
 from datetime import datetime, timezone, timedelta
-from ..CONFIG.config import MAX_ATTEMPTS, LOCK_TIME_MINUTES, SMTP_MAIL, SMTP_PWD, DB_PATH
+
+from ..CONFIG.config import (
+    MAX_ATTEMPTS,
+    LOCK_TIME_MINUTES,
+    SMTP_MAIL,
+    SMTP_PWD,
+)
+
+from app.CORE.connection import master_connection
 
 
 class USER_COL:
@@ -24,57 +30,49 @@ class USER_COL:
 
 
 class Database:
-    __db_is_connected = None
-    fixed_salt = b""
+    fixed_salt = bcrypt.gensalt()
 
     MAX_ATTEMPTS = MAX_ATTEMPTS
     LOCK_TIME_MINUTES = LOCK_TIME_MINUTES
 
-    @classmethod
-    def connect(cls):
-        cls.fixed_salt = bcrypt.gensalt()
-        cls.__db_is_connected = sqlite3.connect(DB_PATH, check_same_thread=False)
-        cls.__db_is_connected.row_factory = sqlite3.Row
-        return cls.__db_is_connected
+    # =========================
+    # Utils
+    # =========================
 
     @staticmethod
     def Hash_password(password: str):
         return bcrypt.hashpw(password.encode(), Database.fixed_salt)
 
+    # =========================
+    # Login / Security
+    # =========================
+
     @staticmethod
     def reset_no_of_failed_attempts(email):
-        if Database.__db_is_connected is None:
-            return {"message": "db is not connected"}
-
-        cursor = Database.__db_is_connected.cursor()
-        cursor.execute(
-            """
-            UPDATE S_Users
-            SET failed_attempts = 0,
-                UpdatedAt = datetime('now')
-            WHERE UserEmail = ?
-            """,
-            (email,)
-        )
-        Database.__db_is_connected.commit()
+        with master_connection() as cursor:
+            cursor.execute(
+                """
+                UPDATE S_Users
+                SET failed_attempts = 0,
+                    UpdatedAt = datetime('now')
+                WHERE UserEmail = ?
+                """,
+                (email,),
+            )
 
     @staticmethod
     def reset_login_attempts(email):
-        if Database.__db_is_connected is None:
-            return {"message": "db is not connected"}
-
-        cursor = Database.__db_is_connected.cursor()
-        cursor.execute(
-            """
-            UPDATE S_Users
-            SET failed_attempts = 0,
-                locked_until = NULL,
-                UpdatedAt = datetime('now')
-            WHERE UserEmail = ?
-            """,
-            (email,)
-        )
-        Database.__db_is_connected.commit()
+        with master_connection() as cursor:
+            cursor.execute(
+                """
+                UPDATE S_Users
+                SET failed_attempts = 0,
+                    locked_until = NULL,
+                    UpdatedAt = datetime('now')
+                WHERE UserEmail = ?
+                """,
+                (email,),
+            )
 
     @staticmethod
     def is_account_locked(user):
@@ -87,9 +85,6 @@ class Database:
 
     @staticmethod
     def handle_failed_login(email, failed_attempts):
-        if Database.__db_is_connected is None:
-            return {"message": "db is not connected"}
-
         failed_attempts += 1
         locked_until = None
 
@@ -100,267 +95,238 @@ class Database:
                 + timedelta(minutes=Database.LOCK_TIME_MINUTES)
             ).isoformat()
 
-        cursor = Database.__db_is_connected.cursor()
-        cursor.execute(
-            """
-            UPDATE S_Users
-            SET failed_attempts = ?,
-                locked_until = ?,
-                UpdatedAt = datetime('now')
-            WHERE UserEmail = ?
-            """,
-            (failed_attempts, locked_until, email)
-        )
-        Database.__db_is_connected.commit()
+        with master_connection() as cursor:
+            cursor.execute(
+                """
+                UPDATE S_Users
+                SET failed_attempts = ?,
+                    locked_until = ?,
+                    UpdatedAt = datetime('now')
+                WHERE UserEmail = ?
+                """,
+                (failed_attempts, locked_until, email),
+            )
+
+    # =========================
+    # Verification Code
+    # =========================
 
     @staticmethod
     def verification_code_operations(operation: str, code: str, email: Optional[str] = None):
-        if Database.__db_is_connected is None:
-            return {"message": "db is not connected"}
+        with master_connection() as cursor:
+            if operation == "update":
+                cursor.execute(
+                    """
+                    UPDATE S_Users
+                    SET ActivationCode = ?, UpdatedAt = datetime('now')
+                    WHERE UserEmail = ?
+                    """,
+                    (code, email),
+                )
+                return cursor.rowcount() > 0
 
-        cursor = Database.__db_is_connected.cursor()
+            elif operation == "get":
+                return cursor.execute(
+                    "SELECT UserEmail FROM S_Users WHERE ActivationCode = ?",
+                    (code,),
+                ).fetchone()
 
-        if operation == "update":
-            cursor.execute(
-                """
-                UPDATE S_Users
-                SET ActivationCode = ?, UpdatedAt = datetime('now')
-                WHERE UserEmail = ?
-                """,
-                (code, email)
-            )
+            elif operation == "delete":
+                cursor.execute(
+                    """
+                    UPDATE S_Users
+                    SET ActivationCode = NULL, UpdatedAt = datetime('now')
+                    WHERE UserEmail = ?
+                    """,
+                    (email,),
+                )
+                return cursor.rowcount() > 0
 
-        elif operation == "get":
-            cursor.execute(
-                "SELECT UserEmail FROM S_Users WHERE ActivationCode = ?",
-                (code,)
-            )
-            return cursor.fetchone()
-
-        elif operation == "delete":
-            cursor.execute(
-                """
-                UPDATE S_Users
-                SET ActivationCode = NULL, UpdatedAt = datetime('now')
-                WHERE UserEmail = ?
-                """,
-                (email,)
-            )
-
-        Database.__db_is_connected.commit()
-        return cursor.rowcount > 0
+    # =========================
+    # Tokens
+    # =========================
 
     @staticmethod
     def get_token_version(email):
-        if Database.__db_is_connected is None:
-            return {"message": "db is not connected"}
-
-        cursor = Database.__db_is_connected.cursor()
-        cursor.execute(
-            "SELECT token_v FROM S_Users WHERE UserEmail = ?",
-            (email,)
-        )
-        row = cursor.fetchone()
-        return row["token_v"] if row else None
+        with master_connection() as cursor:
+            row = cursor.execute(
+                "SELECT token_v FROM S_Users WHERE UserEmail = ?",
+                (email,),
+            ).fetchone()
+            return row[0] if row else None
 
     @staticmethod
     def update_token_version(email, new_token_v):
-        if Database.__db_is_connected is None:
-            return {"message": "db is not connected"}
+        with master_connection() as cursor:
+            cursor.execute(
+                """
+                UPDATE S_Users
+                SET token_v = ?, UpdatedAt = datetime('now')
+                WHERE UserEmail = ?
+                """,
+                (new_token_v, email),
+            )
 
-        cursor = Database.__db_is_connected.cursor()
-        cursor.execute(
-            """
-            UPDATE S_Users
-            SET token_v = ?, UpdatedAt = datetime('now')
-            WHERE UserEmail = ?
-            """,
-            (new_token_v, email)
-        )
-        Database.__db_is_connected.commit()
-        return cursor.rowcount > 0
+    # =========================
+    # Users
+    # =========================
 
     @staticmethod
     def update_user_and_token(email: str, password: str, token_v: int):
-        if Database.__db_is_connected is None:
-            return {"message": "db is not connected"}
+        hashed = Database.Hash_password(password)
 
-        hashed_password = Database.Hash_password(password)
+        with master_connection() as cursor:
+            cursor.execute(
+                """
+                UPDATE S_Users
+                SET PasswordHash = ?,
+                    PasswordSalt = ?,
+                    token_v = ?,
+                    UpdatedAt = datetime('now')
+                WHERE UserEmail = ?
+                """,
+                (hashed, Database.fixed_salt, token_v, email),
+            )
 
-        cursor = Database.__db_is_connected.cursor()
-        cursor.execute(
-            """
-            UPDATE S_Users
-            SET PasswordHash = ?,
-                PasswordSalt = ?,
-                token_v = ?,
-                UpdatedAt = datetime('now')
-            WHERE UserEmail = ?
-            """,
-            (hashed_password, Database.fixed_salt, token_v, email)
-        )
-        Database.__db_is_connected.commit()
-
-        cursor.execute("SELECT * FROM S_Users WHERE UserEmail = ?", (email,))
-        return cursor.fetchone()
+            return cursor.execute(
+                "SELECT * FROM S_Users WHERE UserEmail = ?",
+                (email,),
+            ).fetchone()
 
     @staticmethod
     def update_user(email: str, password: str):
-        if Database.__db_is_connected is None:
-            return {"message": "db is not connected"}
+        hashed = Database.Hash_password(password)
 
-        hashed_password = Database.Hash_password(password)
+        with master_connection() as cursor:
+            cursor.execute(
+                """
+                UPDATE S_Users
+                SET PasswordHash = ?,
+                    PasswordSalt = ?,
+                    UpdatedAt = datetime('now')
+                WHERE UserEmail = ?
+                """,
+                (hashed, Database.fixed_salt, email),
+            )
 
-        cursor = Database.__db_is_connected.cursor()
-        cursor.execute(
-            """
-            UPDATE S_Users
-            SET PasswordHash = ?,
-                PasswordSalt = ?,
-                UpdatedAt = datetime('now')
-            WHERE UserEmail = ?
-            """,
-            (hashed_password, Database.fixed_salt, email)
-        )
-        Database.__db_is_connected.commit()
-
-        cursor.execute("SELECT * FROM S_Users WHERE UserEmail = ?", (email,))
-        return cursor.fetchone()
+            return cursor.execute(
+                "SELECT * FROM S_Users WHERE UserEmail = ?",
+                (email,),
+            ).fetchone()
 
     @staticmethod
-    def get_user_by_email(email: str):
-        if Database.__db_is_connected is None:
-            return {"message": "db is not connected"}
-
-        cursor = Database.__db_is_connected.cursor()
-        cursor.execute("SELECT * FROM S_Users WHERE UserEmail = ?", (email,))
-        return cursor.fetchone()
+    def get_user_by_email(email):
+        with master_connection() as cursor:
+            return cursor.execute(
+                "SELECT * FROM S_Users WHERE UserEmail = ?",
+                (email,),
+            ).fetchone()
 
     @staticmethod
-    def check_user(email: str, password: str):
-        if Database.__db_is_connected is None:
-            return {"message": "db is not connected"}
+    def check_user(email, password):
+        with master_connection() as cursor:
+            user = cursor.execute(
+                "SELECT * FROM S_Users WHERE UserEmail = ?",
+                (email,),
+            ).fetchone()
 
-        cursor = Database.__db_is_connected.cursor()
-        cursor.execute("SELECT * FROM S_Users WHERE UserEmail = ?", (email,))
-        user = cursor.fetchone()
         if not user:
             return None
 
         re_hashed = bcrypt.hashpw(
             password.encode(),
-            user[USER_COL.PasswordSalt]
+            user[USER_COL.PasswordSalt],
         )
 
         return user if re_hashed == user[USER_COL.PasswordHash] else None
 
     @staticmethod
-    def Create_user(display_name: str, email: str, password: str, is_active=0, RoleId=0):
-        if Database.__db_is_connected is None:
-            return {"message": "db is not connected"}
+    def Create_user(display_name, email, password, is_active=0, RoleId=0):
+        hashed = Database.Hash_password(password)
 
-        cursor = Database.__db_is_connected.cursor()
-        cursor.execute(
-            "SELECT 1 FROM S_Users WHERE UserEmail = ?",
-            (email,)
-        )
-        if cursor.fetchone():
-            return None
+        with master_connection() as cursor:
+            exists = cursor.execute(
+                "SELECT 1 FROM S_Users WHERE UserEmail = ?",
+                (email,),
+            ).fetchone()
 
-        hashed_password = Database.Hash_password(password)
+            if exists:
+                return None
 
-        cursor.execute(
-            """
-            INSERT INTO S_Users
-            (UserEmail, RoleId, DisplayName, PasswordHash, PasswordSalt, is_active)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (email, RoleId, display_name, hashed_password, Database.fixed_salt, is_active)
-        )
-        Database.__db_is_connected.commit()
+            cursor.execute(
+                """
+                INSERT INTO S_Users
+                (UserEmail, RoleId, DisplayName, PasswordHash, PasswordSalt, is_active)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (email, RoleId, display_name, hashed, Database.fixed_salt, is_active),
+            )
 
-        cursor.execute("SELECT * FROM S_Users WHERE UserEmail = ?", (email,))
-        return cursor.fetchone()
+            return cursor.execute(
+                "SELECT * FROM S_Users WHERE UserEmail = ?",
+                (email,),
+            ).fetchone()
 
     @staticmethod
     def activate_user(email):
-        if Database.__db_is_connected is None:
-            return {"message": "db is not connected"}
-
-        cursor = Database.__db_is_connected.cursor()
-        cursor.execute(
-            """
-            UPDATE S_Users
-            SET is_active = 1, UpdatedAt = datetime('now')
-            WHERE UserEmail = ?
-            """,
-            (email,)
-        )
-        Database.__db_is_connected.commit()
-        return cursor.rowcount > 0
+        with master_connection() as cursor:
+            cursor.execute(
+                """
+                UPDATE S_Users
+                SET is_active = 1, UpdatedAt = datetime('now')
+                WHERE UserEmail = ?
+                """,
+                (email,),
+            )
 
     @staticmethod
     def Is_user_Active(email):
-        if Database.__db_is_connected is None:
-            return {"message": "db is not connected"}
-
-        cursor = Database.__db_is_connected.cursor()
-        cursor.execute(
-            "SELECT is_active FROM S_Users WHERE UserEmail = ?",
-            (email,)
-        )
-        row = cursor.fetchone()
-        return bool(row["is_active"]) if row else None
+        with master_connection() as cursor:
+            row = cursor.execute(
+                "SELECT is_active FROM S_Users WHERE UserEmail = ?",
+                (email,),
+            ).fetchone()
+            return bool(row[0]) if row else None
 
     @staticmethod
     def Deactivate_user(email):
-        if Database.__db_is_connected is None:
-            return {"message": "db is not connected"}
+        with master_connection() as cursor:
+            row = cursor.execute(
+                """
+                UPDATE S_Users
+                SET is_active = 0, UpdatedAt = datetime('now')
+                WHERE UserEmail = ?
+                """,
+                (email,),
+            ).fetchone()
+            return bool(row[0]) if row else False
 
-        cursor = Database.__db_is_connected.cursor()
-        cursor.execute(
-            """
-            UPDATE S_Users
-            SET is_active = 0, UpdatedAt = datetime('now')
-            WHERE UserEmail = ?
-            """,
-            (email,)
-        )
-        Database.__db_is_connected.commit()
-        return True
+    # =========================
+    # Email
+    # =========================
 
     @staticmethod
     def send_activation_email(to_email, link):
-        msg = MIMEText(f"Click the link to activate your account:\n\n{link}")
-        msg["Subject"] = "Activate your account"
-        msg["From"] = SMTP_MAIL
-        msg["To"] = to_email
-
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(SMTP_MAIL, SMTP_PWD)
-            server.send_message(msg)
+        Database.send_email_with_message(
+            to_email,
+            f"Click the link to activate your account:\n\n{link}",
+            "Activate your account",
+        )
 
     @staticmethod
     def send_password_resetlink(to_email, link):
-        msg = MIMEText(f"Click the link to change your password:\n\n{link}")
-        msg["Subject"] = "Change your password"
-        msg["From"] = SMTP_MAIL
-        msg["To"] = to_email
-
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(SMTP_MAIL, SMTP_PWD)
-            server.send_message(msg)
-
+        Database.send_email_with_message(
+            to_email,
+            f"Click the link to change your password:\n\n{link}",
+            "Change your password",
+        )
 
     @staticmethod
     def send_email_with_message(to_email, message, subject_str):
-        subject = subject_str
-        body = f"{message}"
-
-        msg = MIMEText(body)
-        msg['Subject'] = subject
-        msg['From'] = SMTP_MAIL
-        msg['To'] = to_email
+        msg = MIMEText(message)
+        msg["Subject"] = subject_str
+        msg["From"] = SMTP_MAIL
+        msg["To"] = to_email
 
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(SMTP_MAIL, SMTP_PWD)
