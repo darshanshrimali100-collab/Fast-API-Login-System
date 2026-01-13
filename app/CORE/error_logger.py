@@ -20,16 +20,17 @@ class ErrorLoggerDB:
         Insert an error log into S_UserErrors table.
         """
         try:
-            with master_connection() as cursor:
-                cursor.execute("""
-                    INSERT INTO S_UserErrors (MethodName, UserEmail, RequestBody, ErrorCode, ErrorDetail)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (
-                    method_name,
-                    user_email,
-                    json.dumps(request_body) if request_body else None,
-                    error_code,
-                    error_detail
-                ))
+            if error_code != 485:
+                with master_connection() as cursor:
+                    cursor.execute("""
+                        INSERT INTO S_UserErrors (MethodName, UserEmail, RequestBody, ErrorCode, ErrorDetail)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (
+                        method_name,
+                        user_email,
+                        json.dumps(request_body) if request_body else None,
+                        error_code,
+                        error_detail
+                    ))
         except Exception as e:
             print("Failed to log error:", e)

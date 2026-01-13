@@ -1,12 +1,13 @@
 from app.AUTH.database import Database
 from ..CONFIG.config import SECRET_KEY
 import jwt
-from fastapi import HTTPException, Cookie
+from fastapi import HTTPException, Cookie, Depends
+from app.CORE.DB import with_master_cursor
 
 ALGORITHM = "HS256"
 
 
-def verify_user_jwt(token: str):
+def verify_user_jwt(token: str, cursor):
     """
     Verify a user's JWT against the server's secret key.
 
@@ -22,7 +23,7 @@ def verify_user_jwt(token: str):
         email = payload["sub"]
         print("user_token_v = ", token_v)
         print("email = ", email)
-        token_v_db = Database.get_token_version(email)
+        token_v_db = Database.get_token_version(cursor, email)
         print("token_v_db = ", token_v_db)
 
         if not token_v:
@@ -57,11 +58,11 @@ def get_email_from_jwt(token: str):
         return None   # invalid token
 
 
-def get_current_user_email(access_token: str = Cookie(None)):
+def get_current_user_email(access_token: str = Cookie(None), cursor = Depends(with_master_cursor),):
     if not access_token:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    result = verify_user_jwt(access_token)
+    result = verify_user_jwt(access_token, cursor)
     if result is None:
         raise HTTPException(status_code=401, detail="Invalid token")
 

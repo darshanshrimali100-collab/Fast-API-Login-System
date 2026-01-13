@@ -1,6 +1,8 @@
 from app.CORE.connection import master_connection
-from app.AUTH.database import Database
 import base64
+from typing import Generator
+from fastapi import HTTPException
+import apsw
 
 def init_userDB():
     with master_connection() as cursor:
@@ -20,10 +22,11 @@ def init_userDB():
                 UpdatedAt TEXT NOT NULL DEFAULT (datetime('now'))
             )
         """)
+        from app.AUTH.database import Database
 
         hash_password = Database.Hash_password("123456")
 
-        salt_b64 = base64.b64encode(Database.fixed_salt).decode("utf-8")
+        salt = Database.fixed_salt
 
         result = cursor.execute(
             "SELECT 1 FROM S_Users WHERE UserEmail = ?",
@@ -37,10 +40,9 @@ def init_userDB():
                 (RoleId, DisplayName, UserEmail, PasswordHash, PasswordSalt)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                ("1", "AdminUser", "test@mail.com", hash_password, salt_b64)
+                ("1", "AdminUser", "test@mail.com", hash_password, salt)
             )
             
-
 
 def init_AdminDB():
     with master_connection() as cursor:
@@ -111,3 +113,10 @@ def init_ErrorDB():
             )
         """)
 
+def with_master_cursor() -> Generator:
+    try:
+        with master_connection() as cursor:
+            yield cursor
+    except Exception as e:
+        # Unexpected DB error
+        raise HTTPException(status_code=500, detail=str(e))

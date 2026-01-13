@@ -3,6 +3,7 @@ from functools import wraps
 from app.AUTH.database import Database, USER_COL
 from .database import Admin_database, USER_ROLE_COL
 from app.ADMIN.models import *
+from app.CORE.DB import with_master_cursor
 
 def require_role(required_role: str):
     def decorator(func):

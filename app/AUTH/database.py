@@ -3,6 +3,7 @@ from email.mime.text import MIMEText
 import bcrypt
 from typing import Optional
 from datetime import datetime, timezone, timedelta
+from app.CORE.DB import with_master_cursor
 
 from ..CONFIG.config import (
     MAX_ATTEMPTS,
@@ -48,8 +49,8 @@ class Database:
     # =========================
 
     @staticmethod
-    def reset_no_of_failed_attempts(email):
-        with master_connection() as cursor:
+    def reset_no_of_failed_attempts(cursor, email):
+        #with master_connection() as cursor:
             cursor.execute(
                 """
                 UPDATE S_Users
@@ -61,8 +62,8 @@ class Database:
             )
 
     @staticmethod
-    def reset_login_attempts(email):
-        with master_connection() as cursor:
+    def reset_login_attempts(cursor, email):
+        #with master_connection() as cursor:
             cursor.execute(
                 """
                 UPDATE S_Users
@@ -84,7 +85,7 @@ class Database:
         return datetime.now(IST) < datetime.fromisoformat(locked_until)
 
     @staticmethod
-    def handle_failed_login(email, failed_attempts):
+    def handle_failed_login(cursor, email, failed_attempts):
         failed_attempts += 1
         locked_until = None
 
@@ -95,7 +96,7 @@ class Database:
                 + timedelta(minutes=Database.LOCK_TIME_MINUTES)
             ).isoformat()
 
-        with master_connection() as cursor:
+        #with master_connection() as cursor:
             cursor.execute(
                 """
                 UPDATE S_Users
@@ -112,8 +113,8 @@ class Database:
     # =========================
 
     @staticmethod
-    def verification_code_operations(operation: str, code: str, email: Optional[str] = None):
-        with master_connection() as cursor:
+    def verification_code_operations(cursor ,operation: str, code: str, email: Optional[str] = None):
+        #with master_connection() as cursor:
             if operation == "update":
                 cursor.execute(
                     """
@@ -147,8 +148,8 @@ class Database:
     # =========================
 
     @staticmethod
-    def get_token_version(email):
-        with master_connection() as cursor:
+    def get_token_version(cursor ,email):
+        #with master_connection() as cursor:
             row = cursor.execute(
                 "SELECT token_v FROM S_Users WHERE UserEmail = ?",
                 (email,),
@@ -156,8 +157,8 @@ class Database:
             return row[0] if row else None
 
     @staticmethod
-    def update_token_version(email, new_token_v):
-        with master_connection() as cursor:
+    def update_token_version(cursor ,email, new_token_v):
+        #with master_connection() as cursor:
             cursor.execute(
                 """
                 UPDATE S_Users
@@ -172,67 +173,66 @@ class Database:
     # =========================
 
     @staticmethod
-    def update_user_and_token(email: str, password: str, token_v: int):
+    def update_user_and_token(cursor ,email: str, password: str, token_v: int):
         hashed = Database.Hash_password(password)
 
-        with master_connection() as cursor:
-            cursor.execute(
-                """
-                UPDATE S_Users
-                SET PasswordHash = ?,
-                    PasswordSalt = ?,
-                    token_v = ?,
-                    UpdatedAt = datetime('now')
-                WHERE UserEmail = ?
-                """,
-                (hashed, Database.fixed_salt, token_v, email),
-            )
-
-            return cursor.execute(
-                "SELECT * FROM S_Users WHERE UserEmail = ?",
-                (email,),
-            ).fetchone()
+        #with master_connection() as cursor:
+        cursor.execute(
+            """
+            UPDATE S_Users
+            SET PasswordHash = ?,
+                PasswordSalt = ?,
+                token_v = ?,
+                UpdatedAt = datetime('now')
+            WHERE UserEmail = ?
+            """,
+            (hashed, Database.fixed_salt, token_v, email),
+        )
+        return cursor.execute(
+            "SELECT * FROM S_Users WHERE UserEmail = ?",
+            (email,),
+        ).fetchone()
 
     @staticmethod
-    def update_user(email: str, password: str):
+    def update_user(cursor, email: str, password: str):
         hashed = Database.Hash_password(password)
 
-        with master_connection() as cursor:
-            cursor.execute(
-                """
-                UPDATE S_Users
-                SET PasswordHash = ?,
-                    PasswordSalt = ?,
-                    UpdatedAt = datetime('now')
-                WHERE UserEmail = ?
-                """,
-                (hashed, Database.fixed_salt, email),
-            )
+        #with master_connection() as cursor:
+        cursor.execute(
+            """
+            UPDATE S_Users
+            SET PasswordHash = ?,
+                PasswordSalt = ?,
+                UpdatedAt = datetime('now')
+            WHERE UserEmail = ?
+            """,
+            (hashed, Database.fixed_salt, email),
+        )
+        return cursor.execute(
+            "SELECT * FROM S_Users WHERE UserEmail = ?",
+            (email,),
+        ).fetchone()
 
+    @staticmethod
+    def get_user_by_email(cursor, email):
+        #with master_connection() as cursor:
             return cursor.execute(
                 "SELECT * FROM S_Users WHERE UserEmail = ?",
                 (email,),
             ).fetchone()
 
     @staticmethod
-    def get_user_by_email(email):
-        with master_connection() as cursor:
-            return cursor.execute(
-                "SELECT * FROM S_Users WHERE UserEmail = ?",
-                (email,),
-            ).fetchone()
-
-    @staticmethod
-    def check_user(email, password):
-        with master_connection() as cursor:
-            user = cursor.execute(
-                "SELECT * FROM S_Users WHERE UserEmail = ?",
-                (email,),
-            ).fetchone()
+    def check_user(cursor ,email, password):
+        #with master_connection() as cursor:
+        user = cursor.execute(
+            "SELECT * FROM S_Users WHERE UserEmail = ?",
+            (email,),
+        ).fetchone()
 
         if not user:
             return None
 
+        
         re_hashed = bcrypt.hashpw(
             password.encode(),
             user[USER_COL.PasswordSalt],
@@ -241,35 +241,32 @@ class Database:
         return user if re_hashed == user[USER_COL.PasswordHash] else None
 
     @staticmethod
-    def Create_user(display_name, email, password, is_active=0, RoleId=0):
+    def Create_user(cursor ,display_name, email, password, is_active=0, RoleId=0):
         hashed = Database.Hash_password(password)
 
-        with master_connection() as cursor:
-            exists = cursor.execute(
-                "SELECT 1 FROM S_Users WHERE UserEmail = ?",
-                (email,),
-            ).fetchone()
-
-            if exists:
-                return None
-
-            cursor.execute(
-                """
-                INSERT INTO S_Users
-                (UserEmail, RoleId, DisplayName, PasswordHash, PasswordSalt, is_active)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (email, RoleId, display_name, hashed, Database.fixed_salt, is_active),
-            )
-
-            return cursor.execute(
-                "SELECT * FROM S_Users WHERE UserEmail = ?",
-                (email,),
-            ).fetchone()
+        #with master_connection() as cursor:
+        exists = cursor.execute(
+            "SELECT 1 FROM S_Users WHERE UserEmail = ?",
+            (email,),
+        ).fetchone()
+        if exists:
+            return None
+        cursor.execute(
+            """
+            INSERT INTO S_Users
+            (UserEmail, RoleId, DisplayName, PasswordHash, PasswordSalt, is_active)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (email, RoleId, display_name, hashed, Database.fixed_salt, is_active),
+        )
+        return cursor.execute(
+            "SELECT * FROM S_Users WHERE UserEmail = ?",
+            (email,),
+        ).fetchone()
 
     @staticmethod
-    def activate_user(email):
-        with master_connection() as cursor:
+    def activate_user(cursor, email):
+        #with master_connection() as cursor:
             cursor.execute(
                 """
                 UPDATE S_Users
@@ -280,8 +277,8 @@ class Database:
             )
 
     @staticmethod
-    def Is_user_Active(email):
-        with master_connection() as cursor:
+    def Is_user_Active(cursor ,email):
+        #with master_connection() as cursor:
             row = cursor.execute(
                 "SELECT is_active FROM S_Users WHERE UserEmail = ?",
                 (email,),
@@ -289,9 +286,9 @@ class Database:
             return bool(row[0]) if row else None
 
     @staticmethod
-    def Deactivate_user(email):
-        with master_connection() as cursor:
-            row = cursor.execute(
+    def Deactivate_user(cursor, email):
+        #with master_connection() as cursor:
+            cursor.execute(
                 """
                 UPDATE S_Users
                 SET is_active = 0, UpdatedAt = datetime('now')
@@ -299,7 +296,8 @@ class Database:
                 """,
                 (email,),
             ).fetchone()
-            return bool(row[0]) if row else False
+            changes = cursor.execute("SELECT changes()").fetchone()[0]
+            return changes > 0
 
     # =========================
     # Email

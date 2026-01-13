@@ -1,5 +1,5 @@
 from app.CORE.connection import master_connection
-
+from app.CORE.DB import with_master_cursor
 
 class PROJECT_COL:
     ProjectId = 0
@@ -17,12 +17,11 @@ class Projects_database:
     # =========================
 
     @staticmethod
-    def get_active_projects_by_email(user_email: str):
-        with master_connection() as cursor:
+    def get_active_projects_by_email(cursor,user_email: str):
+        #with master_connection() as cursor:
             return cursor.execute(
                 """
                 SELECT
-                    ProjectId,
                     ProjectName,
                     ProjectStatus,
                     CreatedAt,
@@ -36,38 +35,25 @@ class Projects_database:
             ).fetchall()
 
     @staticmethod
-    def get_project_by_id(project_id: int):
-        with master_connection() as cursor:
+    def get_project_for_user(cursor, user_email: str, project_name: str):
+        #with master_connection() as cursor:
             return cursor.execute(
                 """
                 SELECT *
                 FROM S_Projects
-                WHERE ProjectId = ?
+                WHERE UserEmail = ?
+                  AND ProjectName = ?
                 LIMIT 1
                 """,
-                (project_id,),
+                (user_email, project_name),
             ).fetchone()
 
     @staticmethod
-    def get_project_for_user(project_id: int, user_email: str):
-        with master_connection() as cursor:
+    def get_projects_by_user(cursor ,user_email: str):
+        #with master_connection() as cursor:
             return cursor.execute(
                 """
-                SELECT *
-                FROM S_Projects
-                WHERE ProjectId = ?
-                  AND UserEmail = ?
-                LIMIT 1
-                """,
-                (project_id, user_email),
-            ).fetchone()
-
-    @staticmethod
-    def get_projects_by_user(user_email: str):
-        with master_connection() as cursor:
-            return cursor.execute(
-                """
-                SELECT ProjectId, ProjectName, ProjectStatus
+                SELECT ProjectName, ProjectStatus
                 FROM S_Projects
                 WHERE UserEmail = ?
                 ORDER BY UpdatedAt DESC
@@ -76,16 +62,17 @@ class Projects_database:
             ).fetchall()
 
     @staticmethod
-    def get_project_name(project_id: int):
-        with master_connection() as cursor:
+    def get_project_name(cursor ,user_email: str, project_name: str):
+        #with master_connection() as cursor:
             row = cursor.execute(
                 """
                 SELECT ProjectName
                 FROM S_Projects
-                WHERE ProjectId = ?
+                WHERE UserEmail = ?
+                  AND ProjectName = ?
                 LIMIT 1
                 """,
-                (project_id,),
+                (user_email, project_name),
             ).fetchone()
             return row[0] if row else None
 
@@ -94,8 +81,8 @@ class Projects_database:
     # =========================
 
     @staticmethod
-    def create_project(user_email: str, project_name: str):
-        with master_connection() as cursor:
+    def create_project(cursor ,user_email: str, project_name: str):
+        #with master_connection() as cursor:
             cursor.execute(
                 """
                 INSERT INTO S_Projects (
@@ -108,41 +95,67 @@ class Projects_database:
                 """,
                 (user_email, project_name),
             )
-            return cursor.execute("SELECT last_insert_rowid()").fetchone()[0]
+            return project_name  
 
     @staticmethod
-    def rename_project(project_id: int, new_name: str):
-        with master_connection() as cursor:
+    def rename_project(cursor ,user_email: str, old_name: str, new_name: str):
+        #with master_connection() as cursor:
             cursor.execute(
                 """
                 UPDATE S_Projects
                 SET ProjectName = ?,
                     UpdatedAt = CURRENT_TIMESTAMP
-                WHERE ProjectId = ?
+                WHERE UserEmail = ?
+                  AND ProjectName = ?
                 """,
-                (new_name, project_id),
+                (new_name, user_email, old_name),
             )
-            return cursor.rowcount() > 0
+
+            row = cursor.execute(
+                """
+                SELECT 1
+                FROM S_Projects
+                WHERE UserEmail = ? AND ProjectName = ?
+                LIMIT 1
+                """,
+                (user_email, new_name),
+            ).fetchone()
+
+            return row is not None
+            
 
     @staticmethod
-    def delete_project(project_id: int):
-        with master_connection() as cursor:
+    def delete_project(cursor ,user_email: str, project_name: str):
+        #with master_connection() as cursor:
             cursor.execute(
                 """
                 DELETE FROM S_Projects
-                WHERE ProjectId = ?
+                WHERE UserEmail = ?
+                  AND ProjectName = ?
                 """,
-                (project_id,),
+                (user_email, project_name),
             )
-            return cursor.rowcount() > 0
+
+            row = cursor.execute(
+                """
+                SELECT 1
+                FROM S_Projects
+                WHERE UserEmail = ? AND ProjectName = ?
+                LIMIT 1
+                """,
+                (user_email, project_name),
+            ).fetchone()
+
+            return row is None
+            
 
     # =========================
     # Status / Ownership
     # =========================
 
     @staticmethod
-    def set_project_status(user_email: str, project_id: str, status: str):
-        with master_connection() as cursor:
+    def set_project_status(cursor ,user_email: str, project_name: str, status: str):
+        #with master_connection() as cursor:
             cursor.execute(
                 """
                 UPDATE S_Projects
@@ -156,16 +169,29 @@ class Projects_database:
                 """
                 UPDATE S_Projects
                 SET ProjectStatus = ?, UpdatedAt = datetime('now')
-                WHERE UserEmail = ? AND ProjectId = ?
+                WHERE UserEmail = ?
+                  AND ProjectName = ?
                 """,
-                (status, user_email, project_id),
+                (status, user_email, project_name),
             )
 
-            return cursor.rowcount() > 0
+            row = cursor.execute(
+                """
+                SELECT 1
+                FROM S_Projects
+                WHERE UserEmail = ? AND ProjectName = ? AND ProjectStatus = ?
+                LIMIT 1
+                """,
+                (user_email, project_name, status),
+            ).fetchone()
+
+            return row is not None
+
+            #return cursor.rowcount > 0
 
     @staticmethod
-    def project_name_exists(user_email: str, project_name: str):
-        with master_connection() as cursor:
+    def project_name_exists(cursor , user_email: str, project_name: str):
+        #with master_connection() as cursor:
             return (
                 cursor.execute(
                     """
@@ -181,60 +207,59 @@ class Projects_database:
             )
 
     @staticmethod
-    def user_is_project_owner(project_id: int, user_email: str):
-        with master_connection() as cursor:
+    def user_is_project_owner(cursor ,user_email: str, project_name: str):
+        #with master_connection() as cursor:
             return (
                 cursor.execute(
                     """
                     SELECT 1
                     FROM S_Projects
-                    WHERE ProjectId = ?
-                      AND UserEmail = ?
+                    WHERE UserEmail = ?
+                      AND ProjectName = ?
                     LIMIT 1
                     """,
-                    (project_id, user_email),
+                    (user_email, project_name),
                 ).fetchone()
                 is not None
             )
 
     # =========================
-    # Current Project (logic only)
+    # Current Project 
     # =========================
 
     @staticmethod
-    def set_current_project(user_email: str, project_id: int):
-        with master_connection() as cursor:
+    def set_current_project(cursor , user_email: str, project_name: str):
+        #with master_connection() as cursor:
             exists = cursor.execute(
                 """
                 SELECT 1
                 FROM S_Projects
-                WHERE ProjectId = ?
-                  AND UserEmail = ?
+                WHERE UserEmail = ?
+                  AND ProjectName = ?
                 LIMIT 1
                 """,
-                (project_id, user_email),
+                (user_email, project_name),
             ).fetchone()
 
             if exists is None:
                 return {"error": "Project does not exist or access denied"}
 
-            return {"success": True, "current_project_id": project_id}
+            return {"success": True, "current_project": project_name}
 
     @staticmethod
-    def get_current_project(user_email: str, current_project_id: int | None = None):
-        if current_project_id is None:
+    def get_current_project(cursor, user_email: str, current_project_name: str | None = None):
+        if current_project_name is None:
             return {"error": "No current project supplied"}
 
-        with master_connection() as cursor:
-            row = cursor.execute(
-                """
-                SELECT ProjectId
-                FROM S_Projects
-                WHERE ProjectId = ?
-                  AND UserEmail = ?
-                LIMIT 1
-                """,
-                (current_project_id, user_email),
-            ).fetchone()
-
-            return row[0] if row else None
+        #with master_connection() as cursor:
+        row = cursor.execute(
+            """
+            SELECT ProjectName
+            FROM S_Projects
+            WHERE UserEmail = ?
+              AND ProjectName = ?
+            LIMIT 1
+            """,
+            (user_email, current_project_name),
+        ).fetchone()   
+        return row[0] if row else None

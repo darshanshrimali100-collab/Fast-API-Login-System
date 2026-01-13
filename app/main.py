@@ -17,6 +17,10 @@ from fastapi import FastAPI, Request, HTTPException
 from app.CORE.error_logger import ErrorLoggerDB
 from app.CORE.utility import *
 from app.CORE.DB import *
+from fastapi import Request, HTTPException
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
 
 
 app = FastAPI(title="Login")
@@ -85,13 +89,29 @@ else:
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
+    return await log_and_respond(
+        request,
+        exc.status_code,
+        exc.detail,
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return await log_and_respond(
+        request,
+        HTTP_422_UNPROCESSABLE_ENTITY,
+        exc.errors(),
+    )
+
+
+async def log_and_respond(request: Request, status_code: int, detail):
     try:
         body = None
         if request.method in ("POST", "PUT", "PATCH"):
             try:
                 body = await request.json()
             except:
-                body = None
+                pass
 
         access_token = request.cookies.get("access_token")
         user_email = get_email_from_jwt(access_token) if access_token else None
@@ -100,16 +120,17 @@ async def http_exception_handler(request: Request, exc: HTTPException):
             method_name=f"{request.method} {request.url.path}",
             user_email=user_email,
             request_body=body,
-            error_code=exc.status_code,
-            error_detail=exc.detail
+            error_code=status_code,
+            error_detail=detail,
         )
     except Exception as e:
         print("Error logger failed:", e)
 
     return JSONResponse(
-        status_code=exc.status_code,
-        content={"detail": exc.detail}
+        status_code=status_code,
+        content={"detail": detail},
     )
+
 
 
 

@@ -1,6 +1,5 @@
 from app.CORE.connection import master_connection
 
-
 class USER_ROLE_COL:
     RoleId = 0
     RoleName = 1
@@ -12,7 +11,7 @@ class USER_ROLE_COL:
 class Admin_database:
 
     @staticmethod
-    def get_role_by_id(role_id):
+    def get_role_by_id(cursor,role_id):
         with master_connection() as cursor:
             cursor.execute(
                 """

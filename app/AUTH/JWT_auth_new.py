@@ -3,7 +3,6 @@ from app.AUTH.database import Database
 from ..CONFIG.config import SECRET_KEY, ACCESS_TOKEN_EXPIRE_MINUTES, SECURE_COOKIES,MAX_ATTEMPTS
 import jwt
 from datetime import datetime, timezone, timedelta
-from pydantic import BaseModel, EmailStr
 import secrets
 import string
 from fastapi import Depends, Header
@@ -11,6 +10,8 @@ from fastapi import Query
 from fastapi import Cookie
 from app.AUTH.models import *
 from app.CORE.utility import *
+from app.PROJECTS.database import Projects_database
+from app.CORE.DB import with_master_cursor
 
 class USER_COL:
     email = 0
@@ -83,15 +84,15 @@ def refresh_Token(token_v: str, email: str):
 # Login/Logout
 
 @new_router.post("/login")
-def login(payload: LoginRequest, response: Response):
+def login(payload: LoginRequest, response: Response, cursor = Depends(with_master_cursor)):
     email = payload.email
     password = payload.password
 
     # 1. User existence check
-    user = Database.get_user_by_email(email)
+    user = Database.get_user_by_email(cursor, email)
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=485, #updated , 12-JAN-2026, Darshan Shrimali
             detail="Invalid credentials"
         )
 
@@ -105,27 +106,27 @@ def login(payload: LoginRequest, response: Response):
     # Reset attempts if lock expired
     if user[USER_COL.failed_attempts] >= MAX_ATTEMPTS:
         print("Lock expired, resetting failed attempts")
-        Database.reset_no_of_failed_attempts(user[USER_COL.email])
+        Database.reset_no_of_failed_attempts(cursor, user[USER_COL.email])
         # update user
-        user = Database.get_user_by_email(email)
+        user = Database.get_user_by_email(cursor, email)
 
 
     # 3. Password validation
-    valid_user = Database.check_user(email, password)
+    valid_user = Database.check_user(cursor, email, password)
     if not valid_user:
-        Database.handle_failed_login(email, user[USER_COL.failed_attempts])
+        Database.handle_failed_login(cursor, email, user[USER_COL.failed_attempts])
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid Password, failed attempt."
         )
 
     # 4. Reset failed attempts
-    Database.reset_login_attempts(user[USER_COL.email])
+    Database.reset_login_attempts(cursor, user[USER_COL.email])
 
     # 5. Token version logic
-    token_v = Database.get_token_version(email)
+    token_v = Database.get_token_version(cursor, email)
     token_v += 1
-    Database.update_token_version(email, token_v)
+    Database.update_token_version(cursor, email, token_v)
 
     # 6. Issue JWT
     jwt_token = generate_token(token_v, email)
@@ -141,16 +142,20 @@ def login(payload: LoginRequest, response: Response):
         path="/",
     )
 
-    Database.activate_user(email)
+    Database.activate_user(cursor, email)
 
     return {
         "message": "Login successful",
         "access_token": jwt_token,
-        "token_type": "bearer"
+        "token_type": "bearer",
+        "user": {
+            "name": user[USER_COL.name],
+            "email": user[USER_COL.email]
+        }
         }
 
 @new_router.post("/logout")
-def Logout(request: Request, response: Response):
+def Logout(request: Request, response: Response, cursor = Depends(with_master_cursor)):
     jwt_token = request.cookies.get("access_token")
     if not jwt_token:
         raise HTTPException(
@@ -167,9 +172,9 @@ def Logout(request: Request, response: Response):
             detail="Invalid or expired token"
         )
 
-    r = Database.Deactivate_user(email)
+    r = Database.Deactivate_user(cursor ,email)
 
-    if r != True:
+    if r == None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Unable to Logout user Now"
@@ -189,13 +194,13 @@ def Logout(request: Request, response: Response):
 # Signup
 
 @new_router.post("/signup")
-def signup(payload: SignupRequest):
+def signup(payload: SignupRequest, cursor = Depends(with_master_cursor)):
     name = payload.name
     email = payload.email
     password = payload.password
 
     # 1. Create user
-    user = Database.Create_user(name, email, password)
+    user = Database.Create_user(cursor, name, email, password)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -204,7 +209,7 @@ def signup(payload: SignupRequest):
 
     # 2. Generate verification code
     code = generate_verification_code()
-    saved = Database.verification_code_operations("update", code, email)
+    saved = Database.verification_code_operations(cursor, "update", code, email)
 
     if not saved:
         raise HTTPException(
@@ -226,10 +231,10 @@ def signup(payload: SignupRequest):
 
 
 @new_router.get("/activate")
-def activate_account(response: Response, id: str = Query(...)):
+def activate_account(response: Response, id: str = Query(...), cursor = Depends(with_master_cursor)):
     try:
         # 1. Validate verification code
-        record = Database.verification_code_operations("get", id)
+        record = Database.verification_code_operations(cursor, "get", id)
         if not record:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -238,8 +243,18 @@ def activate_account(response: Response, id: str = Query(...)):
 
         email = record[0]
 
+        # added 12-JAN-2026, Darshan Shrimali
+        # create new project "default", whenever new user is created.
+        Projects_database.create_project(cursor, email, "default")
+        result = Projects_database.set_project_status(cursor, email, "default","active")
+        if result == None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="unable to open project now" # detail: Project not found or access denied
+            )
+
         # 2. Delete verification code
-        deleted = Database.verification_code_operations("delete", id, email)
+        deleted = Database.verification_code_operations(cursor, "delete", id, email)
         if not deleted:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -247,9 +262,9 @@ def activate_account(response: Response, id: str = Query(...)):
             )
 
         # 3. Token version logic
-        token_v = Database.get_token_version(email)
+        token_v = Database.get_token_version(cursor, email)
         token_v += 1
-        Database.update_token_version(email, token_v)
+        Database.update_token_version(cursor, email, token_v)
 
         # 4. Issue JWT
         jwt_token = generate_token(token_v, email)
@@ -266,7 +281,7 @@ def activate_account(response: Response, id: str = Query(...)):
         )
 
         #added, 2-jan-2026
-        Database.activate_user(email)
+        Database.activate_user(cursor, email)
 
         return {
             "message": "Account activated successfully",
@@ -290,11 +305,11 @@ def activate_account(response: Response, id: str = Query(...)):
 # Forgot password
 
 @new_router.post("/forgot-password")
-def forgot_password(payload: ForgotPasswordRequest):
+def forgot_password(payload: ForgotPasswordRequest, cursor = Depends(with_master_cursor)):
     email = payload.email
 
     # Optional: user existence check (recommended)
-    user = Database.get_user_by_email(email)
+    user = Database.get_user_by_email(cursor, email)
     if not user:
         return {
             "message": "If the email exists, a reset link has been sent"
@@ -302,7 +317,7 @@ def forgot_password(payload: ForgotPasswordRequest):
 
     # Generate reset code
     code = generate_verification_code()
-    saved = Database.verification_code_operations("update", code, email)
+    saved = Database.verification_code_operations(cursor, "update", code, email)
 
     if not saved:
         raise HTTPException(
@@ -322,8 +337,8 @@ def forgot_password(payload: ForgotPasswordRequest):
     }
 
 @new_router.get("/forgot-password/verify")
-def verify_reset_code(id: str = Query(...)):
-    record = Database.verification_code_operations("get", id)
+def verify_reset_code( id: str = Query(...), cursor = Depends(with_master_cursor)):
+    record = Database.verification_code_operations(cursor, "get", id)
 
     if not record:
         raise HTTPException(
@@ -340,13 +355,13 @@ def verify_reset_code(id: str = Query(...)):
     }
 
 @new_router.post("/reset-password")
-def reset_password(payload: ResetPasswordRequest):
+def reset_password( payload: ResetPasswordRequest, cursor = Depends(with_master_cursor)):
     email = payload.email
     reset_token = payload.reset_token
     new_password = payload.new_password
 
     # 1. Verify reset token again (important)
-    record = Database.verification_code_operations("get", reset_token)
+    record = Database.verification_code_operations(cursor, "get", reset_token)
     if not record or record[0] != email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -362,7 +377,7 @@ def reset_password(payload: ResetPasswordRequest):
     #        detail="User not found"
     #    )
 
-    updated = Database.update_user(email, new_password)
+    updated = Database.update_user(cursor, email, new_password)
     if not updated:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -370,12 +385,12 @@ def reset_password(payload: ResetPasswordRequest):
         )
 
     # 3. Delete reset token
-    Database.verification_code_operations("delete", reset_token, email)
+    Database.verification_code_operations(cursor, "delete", reset_token, email)
 
     # 4. Invalidate old tokens
-    token_v = Database.get_token_version(email)
+    token_v = Database.get_token_version(cursor, email)
     token_v += 1
-    Database.update_token_version(email, token_v)
+    Database.update_token_version(cursor, email, token_v)
 
     # 5. Issue fresh JWT 
     jwt_token = generate_token(token_v, email)
@@ -388,12 +403,12 @@ def reset_password(payload: ResetPasswordRequest):
 
 # added new 26-Dec-2025
 @new_router.post("/reset-password/combined")
-def reset_password_combined(response: Response, payload: ResetPasswordCombinedRequest):
+def reset_password_combined( response: Response, payload: ResetPasswordCombinedRequest, cursor = Depends(with_master_cursor)):
     reset_token = payload.reset_token
     new_password = payload.new_password
 
     # 1. Verify reset token
-    record = Database.verification_code_operations("get", reset_token)
+    record = Database.verification_code_operations(cursor, "get", reset_token)
     if not record:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -411,7 +426,7 @@ def reset_password_combined(response: Response, payload: ResetPasswordCombinedRe
     #        detail="User not found"
     #    )
 
-    updated = Database.update_user(email, new_password)
+    updated = Database.update_user(cursor, email, new_password)
     if not updated:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -419,12 +434,12 @@ def reset_password_combined(response: Response, payload: ResetPasswordCombinedRe
         )
 
     # 3. Delete reset token
-    Database.verification_code_operations("delete", reset_token, email)
+    Database.verification_code_operations(cursor, "delete", reset_token, email)
 
     # 4. Invalidate old tokens
-    token_v = Database.get_token_version(email)
+    token_v = Database.get_token_version(cursor, email)
     token_v += 1
-    Database.update_token_version(email, token_v)
+    Database.update_token_version(cursor, email, token_v)
 
     # 5. Issue fresh JWT
     jwt_token = generate_token(token_v, email)
@@ -453,12 +468,13 @@ def reset_password_combined(response: Response, payload: ResetPasswordCombinedRe
 def change_password(
     response: Response,
     payload: ChangePasswordRequest,
-    user=Depends(get_current_user_email)
+    user=Depends(get_current_user_email),
+    cursor = Depends(with_master_cursor)
 ):
     email = user
     print("payload = ", payload)
     # 1. Verify current password
-    valid = Database.check_user(email, payload.current_password)
+    valid = Database.check_user(cursor, email, payload.current_password)
     if not valid:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -474,11 +490,12 @@ def change_password(
     #     )
 
     # 2. Token version increment (invalidate old sessions)
-    token_v = Database.get_token_version(email)
+    token_v = Database.get_token_version(cursor, email)
     token_v += 1
 
     # 3. Update password + token version
     updated = Database.update_user_and_token(
+        cursor,
         email,
         payload.new_password,
         token_v
@@ -519,7 +536,7 @@ def change_password(
 # user 
 
 @new_router.post("/user")
-def user_detail(request: Request, response: Response):
+def user_detail(request: Request, response: Response, cursor = Depends(with_master_cursor)):
 
     jwt_token = request.cookies.get("access_token")
     if not jwt_token:
@@ -538,7 +555,7 @@ def user_detail(request: Request, response: Response):
         )
 
     # 3. Get user details from DB
-    user = Database.get_user_by_email(email)
+    user = Database.get_user_by_email(cursor, email)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
