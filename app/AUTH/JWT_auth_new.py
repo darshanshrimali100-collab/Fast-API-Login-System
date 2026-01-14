@@ -184,7 +184,7 @@ def Logout(request: Request, response: Response, cursor = Depends(with_master_cu
         key="access_token",
         path="/",
         httponly=True,
-        secure=True,
+        secure=SECURE,
         samesite="lax"
     )
 

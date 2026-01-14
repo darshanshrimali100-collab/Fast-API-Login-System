@@ -2,6 +2,8 @@ import apsw, threading
 import os, traceback
 #from ..core.config import master_db
 from app.CONFIG.config import master_db
+from fastapi import HTTPException
+from fastapi.exceptions import RequestValidationError
 
 connection_pool = {}
 
@@ -22,6 +24,15 @@ class sql_connection():
             except:
                 pass
             self.cursor.close()
+
+            # Added, Darshan Shrimali
+            if issubclass(exception_type, HTTPException):
+                return False   # re-raise original exception
+
+            # Added, Darshan Shrimali
+            if issubclass(exception_type, RequestValidationError):
+                return False   # re-raise original exception
+
             if exception_type == apsw.ReadOnlyError:
                 raise UserError("Sorry!, You have Read Only access.")
             print(f"some error happened {exception_type} {exception_value} {str(traceback_val)}")

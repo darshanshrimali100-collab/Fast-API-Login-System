@@ -1,8 +1,5 @@
 from app.CORE.connection import master_connection
-import base64
 from typing import Generator
-from fastapi import HTTPException
-import apsw
 
 def init_userDB():
     with master_connection() as cursor:
@@ -114,9 +111,9 @@ def init_ErrorDB():
         """)
 
 def with_master_cursor() -> Generator:
-    try:
+    #try:
         with master_connection() as cursor:
             yield cursor
-    except Exception as e:
-        # Unexpected DB error
-        raise HTTPException(status_code=500, detail=str(e))
+    #except Exception as e:
+    #    # Unexpected DB error
+    #    raise HTTPException(status_code=500, detail=str(e))

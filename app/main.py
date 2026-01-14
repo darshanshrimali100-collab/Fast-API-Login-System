@@ -20,8 +20,9 @@ from app.CORE.DB import *
 from fastapi import Request, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
-
+from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY, HTTP_500_INTERNAL_SERVER_ERROR
+from fastapi.responses import JSONResponse
+import json
 
 app = FastAPI(title="Login")
 
@@ -100,9 +101,19 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     return await log_and_respond(
         request,
         HTTP_422_UNPROCESSABLE_ENTITY,
-        exc.errors(),
+        #exc.errors(),
+        json.dumps(exc.errors())
     )
 
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    # yahan tum DB errors, infra errors, bugs sab pakadte ho
+    print("unhandeed exception")
+    return await log_and_respond(
+        request,
+        HTTP_500_INTERNAL_SERVER_ERROR,
+        "Internal server error"
+    )
 
 async def log_and_respond(request: Request, status_code: int, detail):
     try:

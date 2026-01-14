@@ -10,7 +10,7 @@ router = APIRouter(prefix="/projects")
 # -------------------------
 # GET USER PROJECTS
 # -------------------------
-@router.get("/user_projects")
+@router.post("/user_projects")
 def get_user_projects(
     response: Response,
     email: str = Depends(get_current_user_email),
