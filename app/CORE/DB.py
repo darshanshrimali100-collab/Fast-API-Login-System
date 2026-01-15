@@ -105,6 +105,7 @@ def init_ErrorDB():
                 MethodName TEXT NOT NULL,
                 UserEmail TEXT,
                 RequestBody TEXT,
+                ErrorType TEXT,
                 ErrorCode INTEGER NOT NULL,
                 ErrorDetail TEXT
             )

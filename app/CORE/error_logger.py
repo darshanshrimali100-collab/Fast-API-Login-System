@@ -15,7 +15,7 @@ class ErrorLoggerDB:
         return cls.__db_is_connected
 
     @classmethod
-    def log_error(cls, method_name: str, user_email: str | None, request_body: dict | None, error_code: int, error_detail: str):
+    def log_error(cls, method_name: str, user_email: str | None, request_body: dict | None, ErrorType: str, error_code: int, error_detail: str):
         """
         Insert an error log into S_UserErrors table.
         """
@@ -23,12 +23,13 @@ class ErrorLoggerDB:
             if error_code != 485:
                 with master_connection() as cursor:
                     cursor.execute("""
-                        INSERT INTO S_UserErrors (MethodName, UserEmail, RequestBody, ErrorCode, ErrorDetail)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT INTO S_UserErrors (MethodName, UserEmail, RequestBody, ErrorType ,ErrorCode, ErrorDetail)
+                        VALUES (?, ?, ?, ?, ?, ?)
                     """, (
                         method_name,
                         user_email,
                         json.dumps(request_body) if request_body else None,
+                        ErrorType,
                         error_code,
                         error_detail
                     ))

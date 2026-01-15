@@ -23,6 +23,7 @@ from fastapi.responses import JSONResponse
 from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY, HTTP_500_INTERNAL_SERVER_ERROR
 from fastapi.responses import JSONResponse
 import json
+from app.CORE.connection import UserError
 
 app = FastAPI(title="Login")
 
@@ -92,6 +93,7 @@ else:
 async def http_exception_handler(request: Request, exc: HTTPException):
     return await log_and_respond(
         request,
+        "HTTP Error",
         exc.status_code,
         exc.detail,
     )
@@ -100,6 +102,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     return await log_and_respond(
         request,
+        "Request Validation Error",
         HTTP_422_UNPROCESSABLE_ENTITY,
         #exc.errors(),
         json.dumps(exc.errors())
@@ -109,13 +112,21 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def unhandled_exception_handler(request: Request, exc: Exception):
     # yahan tum DB errors, infra errors, bugs sab pakadte ho
     print("unhandeed exception")
+
+    if exc.args and isinstance(exc.args[0], str):
+        message =  exc.args[0]
+    else:
+        message = str(exc)
+
     return await log_and_respond(
         request,
+        "Normal Exception",
         HTTP_500_INTERNAL_SERVER_ERROR,
-        "Internal server error"
+        message
     )
 
-async def log_and_respond(request: Request, status_code: int, detail):
+
+async def log_and_respond(request: Request, ErrorType, status_code: int, detail):
     try:
         body = None
         if request.method in ("POST", "PUT", "PATCH"):
@@ -131,6 +142,7 @@ async def log_and_respond(request: Request, status_code: int, detail):
             method_name=f"{request.method} {request.url.path}",
             user_email=user_email,
             request_body=body,
+            ErrorType=ErrorType,
             error_code=status_code,
             error_detail=detail,
         )
