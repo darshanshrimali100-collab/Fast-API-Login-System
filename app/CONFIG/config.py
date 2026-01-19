@@ -25,6 +25,10 @@ SMTP_MAIL = os.getenv("SMTP_MAIL")
 SMTP_PWD = os.getenv("SMTP_PWD")
 DB_PATH = os.getenv("DB_PATH")
 
+# Used In Models router
+DATA_FOLDER = os.path.join(os.getcwd(), "app", "DATA")
+os.makedirs(DATA_FOLDER, exist_ok=True)
+
 print("MAX_ATTEMPTS =", MAX_ATTEMPTS)
 print("LOCK_TIME_MINUTES =", LOCK_TIME_MINUTES)
 print("reading config file")

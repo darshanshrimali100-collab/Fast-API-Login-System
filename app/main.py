@@ -3,7 +3,7 @@ startup pe db se connect karna
 """
 
 from fastapi import FastAPI
-from app.AUTH.JWT_auth import router, signup_router
+#from app.AUTH.JWT_auth import router, signup_router
 from app.AUTH.JWT_auth_new import new_router
 from fastapi.responses import FileResponse, JSONResponse
 from datetime import datetime, timezone, timedelta
@@ -23,7 +23,7 @@ from fastapi.responses import JSONResponse
 from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY, HTTP_500_INTERNAL_SERVER_ERROR
 from fastapi.responses import JSONResponse
 import json
-from app.CORE.connection import UserError
+from app.MODELS.request_models import Model_router
 
 app = FastAPI(title="Login")
 
@@ -74,19 +74,10 @@ if TEST_MODE:
         return await call_next(request)
 
 
-if TEST_MODE:
-    app.mount(
-        "/static",
-        StaticFiles(directory="app/static"),
-        name="static"
-    )
-
-    app.include_router(router, prefix="/Login")
-    app.include_router(signup_router, prefix="/Signup")
-else:
-    app.include_router(new_router)
-    app.include_router(admin_router)
-    app.include_router(project_router)
+app.include_router(new_router)
+app.include_router(admin_router)
+app.include_router(project_router)
+app.include_router(Model_router)
 
 
 @app.exception_handler(HTTPException)
@@ -165,19 +156,6 @@ def startup_db():
     init_AdminDB()
     init_ProjectDB()
     init_ErrorDB()
+    init_ModelsDB()
+    init_UserModelsDB()
 
-@app.get("/")
-def Login():
-    return FileResponse("app/static/login.html")
-
-@app.get("/signup")
-def Signup():
-    return FileResponse("app/static/Signup.html")
-
-@app.get("/forgot_password")
-def forgot_password():
-    return FileResponse("app/static/Forgot_password.html")
-
-@app.get("/profile")
-def forgot_password():
-    return FileResponse("app/static/Profile.html")

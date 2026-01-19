@@ -111,6 +111,44 @@ def init_ErrorDB():
             )
         """)
 
+def init_UserModelsDB():
+    with master_connection() as cursor:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS S_UserModels (
+                ModelId     INTEGER,
+                UserId      TEXT,
+                ProjectId   INTEGER,
+                AccessLevel TEXT    NOT NULL,
+                GrantedAt   TEXT    NOT NULL
+                            DEFAULT (datetime('now')),
+                PRIMARY KEY (
+                    ModelId,
+                    UserId
+                )
+            )
+        """)
+
+
+def init_ModelsDB():
+    with master_connection() as cursor:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS S_Models (
+                ModelId     INTEGER PRIMARY KEY AUTOINCREMENT,
+                ModelUID    TEXT    NOT NULL
+                            UNIQUE,
+                ModelName   TEXT,
+                ModelPath   TEXT,
+                CreatedAt   TEXT    NOT NULL
+                            DEFAULT (datetime('now')),
+                OwnerId     TEXT,
+                UNIQUE (
+                    ModelName,
+                    OwnerId
+                )
+            )
+        """)
+
+
 def with_master_cursor() -> Generator:
     #try:
         with master_connection() as cursor:

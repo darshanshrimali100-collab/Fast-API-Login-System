@@ -16,6 +16,27 @@ class Projects_database:
     # Reads
     # =========================
 
+    #used in MODELS router 
+    @staticmethod
+    def get_curent_active_project_id_by_email(cursor, user_email: str):
+           row = cursor.execute(
+                """
+                SELECT
+                    ProjectId
+                    ProjectName,
+                    ProjectStatus,
+                    CreatedAt,
+                    UpdatedAt
+                FROM S_Projects
+                WHERE UserEmail = ?
+                  AND ProjectStatus = 'active'
+                ORDER BY UpdatedAt DESC
+                """,
+                (user_email,),
+            ).fetchall()
+           
+           return row[0] if row else None
+
     @staticmethod
     def get_active_projects_by_email(cursor,user_email: str):
         #with master_connection() as cursor:
@@ -33,6 +54,22 @@ class Projects_database:
                 """,
                 (user_email,),
             ).fetchall()
+
+    #used in MODELS router
+    @staticmethod
+    def get_project_id_for_user(cursor, user_email: str, project_name: str):
+        row = cursor.execute(
+            """
+            SELECT ProjectID
+            FROM S_Projects
+            WHERE UserEmail = ?
+              AND ProjectName = ?
+            LIMIT 1
+            """,
+            (user_email, project_name),
+        ).fetchone()
+
+        return row[PROJECT_COL.ProjectId] if row else None
 
     @staticmethod
     def get_project_for_user(cursor, user_email: str, project_name: str):
