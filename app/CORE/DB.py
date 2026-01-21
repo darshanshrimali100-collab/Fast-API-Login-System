@@ -140,11 +140,7 @@ def init_ModelsDB():
                 ModelPath   TEXT,
                 CreatedAt   TEXT    NOT NULL
                             DEFAULT (datetime('now')),
-                OwnerId     TEXT,
-                UNIQUE (
-                    ModelName,
-                    OwnerId
-                )
+                OwnerId     TEXT
             )
         """)
 

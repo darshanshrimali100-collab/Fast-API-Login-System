@@ -18,6 +18,56 @@ class S_USERMODELS_COL:
 
 class Models_database:
 
+    # added 20-JAN-2026
+    @staticmethod
+    def get_models_by_user_grouped(cursor, user_email: str):
+        query = """
+            SELECT
+                p.ProjectName,
+                m.ModelName
+            FROM S_UserModels um
+            JOIN S_Models m
+                ON um.ModelId = m.ModelId
+            JOIN S_Projects p
+                ON um.ProjectId = p.ProjectId
+            WHERE um.UserId = ?
+            ORDER BY p.ProjectName, m.ModelName
+        """
+        row = cursor.execute(query, (user_email,)).fetchall()
+        return row
+
+
+    # added 20-JAN-2026
+    @staticmethod
+    def assign_project_to_models(cursor, user_email: str, model_names: list[str], project_name: str):
+        """
+        Assigns the given project's ProjectId to the specified user's models.
+        Supports multiple model names at once.
+        Returns number of rows updated.
+        """
+        if not model_names:
+            return 0  # nothing to update
+
+        # Create placeholders for parameterized query, e.g. (?, ?, ?) if 3 model names
+        placeholders = ','.join('?' for _ in model_names)
+
+        query = f"""
+        UPDATE S_UserModels
+        SET ProjectId = S_Projects.ProjectId
+        FROM S_Projects, S_Models
+        WHERE S_Projects.UserEmail = S_UserModels.UserId
+          AND S_Projects.ProjectName = ?
+          AND S_Projects.UserEmail = ?
+          AND S_UserModels.ModelId = S_Models.ModelId
+          AND S_Models.ModelName IN ({placeholders})
+        """
+
+        # Parameters: project_name, user_email, then all model names
+        params = [project_name, user_email] + model_names
+        result = cursor.execute(query, params).fetchall()
+        return result
+
+
     @staticmethod
     def get_models_by_email(cursor, user_email: str):
         """

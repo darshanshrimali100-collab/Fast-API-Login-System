@@ -73,7 +73,9 @@ def init_db(db_path, db_access=1):
         conn = apsw.Connection(db_path,flags=apsw.SQLITE_OPEN_READONLY)
     else:
         conn = apsw.Connection(db_path)
-    conn.setbusytimeout(12000)
+    conn.setbusytimeout(30000)
+    conn.cursor().execute("PRAGMA journal_mode=WAL;")          
+    conn.cursor().execute("PRAGMA synchronous=NORMAL;")
     conn.cursor().execute("PRAGMA temp_store =  MEMORY")
     return conn
     

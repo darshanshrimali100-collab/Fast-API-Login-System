@@ -77,7 +77,7 @@ def add_new_model(
         project_id = Projects_database.get_project_id_for_user(cursor, email, project_name)
         model_id = Models_database.get_model_id_by_name(cursor, model_name)
 
-        if project_id & model_id:
+        if project_id and model_id:
             Models_database.insert_user_model(cursor, model_id, email, project_id)
         else:
             raise HTTPException(status_code=400, detail=f"details not found model_name = {model_name}, project_name = {project_name}")
@@ -108,24 +108,32 @@ def add_existing_model(
     email: str = Depends(get_current_user_email),
     cursor = Depends(with_master_cursor)
 ):
+    if not payload.project_name:
+        raise HTTPException(status_code=400, detail="No Project name provided")
+
     if not payload.model_names:
         raise HTTPException(status_code=400, detail="No models provided")
 
-    active_project_id = Projects_database.get_curent_active_project_id_by_email(cursor, email)
-    print("*******************************", active_project_id)
+    result = Models_database.assign_project_to_models(cursor, email, payload.model_names, payload.project_name)
 
-    for model_name in payload.model_names:
+    if result == None:
+        raise HTTPException(status_code=400, detail="No models updated")
 
-        model_id = Models_database.get_model_id_by_name(cursor, model_name)
-        if not model_id:
-            continue  # silently skip, as per your requirement
+    #active_project_id = Projects_database.get_curent_active_project_id_by_email(cursor, email)
+    #print("*******************************", active_project_id)
 
-        Models_database.assign_model_to_user(
-            cursor,
-            model_id,
-            email,
-            active_project_id[0]
-        )
+    #for model_name in payload.model_names:
+
+    #    model_id = Models_database.get_model_id_by_name(cursor, model_name)
+    #    if not model_id:
+    #        continue  # silently skip, as per your requirement
+
+    #    Models_database.assign_model_to_user(
+    #        cursor,
+    #        model_id,
+    #        email,
+    #        active_project_id[0]
+    #    )
 
     return {"message": "updated successfully"}
 
@@ -156,3 +164,32 @@ def get_user_models(
         "user": user_email,
         "models": models
     }
+
+
+@Model_router.post("/get_user_models_by_project")
+def get_user_models_by_project(
+    email: str = Depends(get_current_user_email),
+    cursor = Depends(with_master_cursor)
+):
+    user_email = email
+
+    rows = Models_database.get_models_by_user_grouped(cursor, user_email)
+
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No models found for user: {user_email}"
+        )
+
+    result = {}
+
+    for row in rows:
+        project_name = row[0]
+        model_name = row[1]
+
+        if project_name not in result:
+            result[project_name] = []
+
+        result[project_name].append(model_name)
+
+    return result
