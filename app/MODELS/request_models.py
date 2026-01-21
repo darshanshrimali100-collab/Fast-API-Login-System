@@ -1,3 +1,4 @@
+import shutil
 from fastapi import HTTPException, APIRouter, Response, Depends
 from .database import Models_database, S_MODELS_COL, S_USERMODELS_COL
 from app.PROJECTS.modals import *
@@ -65,6 +66,10 @@ def add_new_model(
     model_uid = str(uuid.uuid4())
     db_path = os.path.join(DATA_FOLDER, f"{model_uid}.db")
 
+    project_id = Projects_database.get_project_id_for_user(cursor, email, project_name)
+    
+    if Models_database.model_exists_in_project(cursor, project_id, model_name):
+        raise HTTPException(status_code=400, detail=f"model already exits, model_name = {model_name}, project_name = {project_name}")
     
     # 4. Insert into S_Models (EMAIL AS OWNER)
     try:
@@ -74,8 +79,7 @@ def add_new_model(
     
     if result == True: 
         # insert details to S_UserModels
-        project_id = Projects_database.get_project_id_for_user(cursor, email, project_name)
-        model_id = Models_database.get_model_id_by_name(cursor, model_name)
+        model_id = Models_database.get_model_id_by_name(cursor, model_name, model_uid)
 
         if project_id and model_id:
             Models_database.insert_user_model(cursor, model_id, email, project_id)
@@ -118,22 +122,6 @@ def add_existing_model(
 
     if result == None:
         raise HTTPException(status_code=400, detail="No models updated")
-
-    #active_project_id = Projects_database.get_curent_active_project_id_by_email(cursor, email)
-    #print("*******************************", active_project_id)
-
-    #for model_name in payload.model_names:
-
-    #    model_id = Models_database.get_model_id_by_name(cursor, model_name)
-    #    if not model_id:
-    #        continue  # silently skip, as per your requirement
-
-    #    Models_database.assign_model_to_user(
-    #        cursor,
-    #        model_id,
-    #        email,
-    #        active_project_id[0]
-    #    )
 
     return {"message": "updated successfully"}
 
@@ -193,3 +181,94 @@ def get_user_models_by_project(
         result[project_name].append(model_name)
 
     return result
+
+
+@Model_router.post("/save_as_model")
+def save_as_model(
+    payload: SaveAsModelRequest,
+    email: str = Depends(get_current_user_email),
+    cursor = Depends(with_master_cursor)
+):
+    existing_name = payload.existing_model_name.strip()
+    new_name = payload.new_model_name.strip()
+    project_name = payload.project_name.strip()
+
+    if not existing_name or not new_name or not project_name:
+        raise HTTPException(400, "Model name and project name are required")
+
+    #  Resolve project_id
+    project_id = Projects_database.get_project_id_for_user(
+        cursor,
+        email,
+        project_name
+    )
+
+    if not project_id:
+        raise HTTPException(404, "Project not found")
+
+    #  Fetch existing model from SAME project
+    existing = Models_database.get_model_by_name_and_project(
+        cursor,
+        email,
+        existing_name,
+        project_id
+    )
+
+    if not existing:
+        raise HTTPException(
+            404,
+            f"Model '{existing_name}' not found in project '{project_name}'"
+        )
+
+    old_db_path = existing["ModelPath"]
+
+    if not os.path.exists(old_db_path):
+        raise HTTPException(500, "Source DB file missing")
+
+    #  Duplicate name check in same project
+    if Models_database.model_exists_in_project(
+        cursor,
+        project_id,
+        new_name
+    ):
+        raise HTTPException(
+            400,
+            f"Model '{new_name}' already exists in this project"
+        )
+
+    #  Create new UID + DB path
+    new_uid = str(uuid.uuid4())
+    new_db_path = os.path.join(DATA_FOLDER, f"{new_uid}.db")
+
+    try:
+        shutil.copyfile(old_db_path, new_db_path)
+    except Exception as e:
+        raise HTTPException(500, f"DB copy failed: {str(e)}")
+
+    #  Insert into S_Models
+    Models_database.add_model(
+        cursor,
+        new_uid,
+        new_name,
+        new_db_path,
+        email
+    )
+
+    model_id = Models_database.get_model_id_by_name(cursor, new_name, new_uid)
+    if not model_id:
+        raise HTTPException(500, "Model insert failed")
+
+    #  Map to SAME project
+    Models_database.insert_user_model(
+        cursor,
+        model_id,
+        email,
+        project_id
+    )
+
+    return {
+        "message": "Model saved as new model successfully",
+        "source_model": existing_name,
+        "new_model": new_name,
+        "project": project_name
+    }

@@ -11,3 +11,8 @@ class AddModelRequest(BaseModel):
 class AssignModelsRequest(BaseModel):
     project_name: str
     model_names: List[str]  #project names of respective models, S_user models, project id update  -> current active project.
+
+class SaveAsModelRequest(BaseModel):
+    existing_model_name: str
+    new_model_name: str
+    project_name: str

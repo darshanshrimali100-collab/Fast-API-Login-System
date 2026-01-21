@@ -1,4 +1,5 @@
 from app.CORE.DB import with_master_cursor
+from fastapi import HTTPException
 
 class S_MODELS_COL:
     ModelId     = 0
@@ -111,7 +112,7 @@ class Models_database:
                 GrantedAt
             )
             VALUES (?, ?, ?, ?, datetime('now'))
-            ON CONFLICT(ModelId, UserId)
+            ON CONFLICT (ModelId, UserId, ProjectId)
             DO UPDATE SET
                 ProjectId   = excluded.ProjectId,
                 AccessLevel = excluded.AccessLevel,
@@ -122,25 +123,30 @@ class Models_database:
     
 
     @staticmethod
-    def get_model_id_by_name(cursor, model_name: str) -> int | None:
+    def get_model_id_by_name(
+        cursor,
+        model_name: str,
+        model_uid: str
+    ):
         """
-        Fetch the ModelId for a given model_name.
+        Fetch the ModelId for a given model_name and model_uid.
+        """
 
-        Returns:
-            ModelId (int) if found, else None
-        """
         row = cursor.execute(
             """
             SELECT ModelId
             FROM S_Models
             WHERE ModelName = ?
+              AND ModelUID  = ?
             """,
-            (model_name,)
+            (model_name, model_uid)
         ).fetchone()
 
         if row:
             return row[0]
         return None
+
+    
     
     @staticmethod
     def add_model(
@@ -202,3 +208,83 @@ class Models_database:
             """,
             (model_id, user_id, project_id)
         )
+
+
+    @staticmethod
+    def model_exists_in_project(cursor, project_id: int, model_name: str) -> bool:
+        """
+        Check if a model with the given name already exists in the given project.
+        Returns True if exists, False otherwise.
+        """
+        row = cursor.execute("""
+            SELECT 1
+            FROM S_UserModels um
+            JOIN S_Models m ON um.ModelId = m.ModelId
+            WHERE um.ProjectId = ? AND m.ModelName = ?
+            LIMIT 1
+        """, (project_id, model_name)).fetchone()
+        
+        return row is not None
+
+
+    @staticmethod
+    def get_model_with_project_id_by_name(cursor, email, model_name, project_id):
+        rows = cursor.execute(
+            """
+            SELECT
+                m.ModelUID,
+                m.ModelPath,
+                um.ProjectId
+            FROM S_Models m
+            JOIN S_UserModels um ON um.ModelId = m.ModelId
+            WHERE um.UserId = ?
+              AND m.ModelName = ?
+              AND um.ProjectId = ?
+            LIMIT 1
+            """,
+            (email, model_name, project_id)
+        ).fetchone()
+
+
+        if not rows:
+            return None
+
+        if len(rows) > 1:
+            raise HTTPException(
+                400,
+                f"Model '{model_name}' exists in multiple projects"
+            )
+
+        r = rows[0]
+        return {
+            "ModelUID": r[0],
+            "ModelPath": r[1],
+            "ProjectId": r[2],
+        }
+
+
+    @staticmethod
+    def get_model_by_name_and_project(cursor, email, model_name, project_id):
+        row = cursor.execute(
+            """
+            SELECT
+                m.ModelId,
+                m.ModelUID,
+                m.ModelPath
+            FROM S_Models m
+            JOIN S_UserModels um ON um.ModelId = m.ModelId
+            WHERE um.UserId = ?
+              AND um.ProjectId = ?
+              AND m.ModelName = ?
+            """,
+            (email, project_id, model_name)
+        ).fetchone()
+    
+        if not row:
+            return None
+    
+        return {
+            "ModelId": row[0],
+            "ModelUID": row[1],
+            "ModelPath": row[2]
+        }

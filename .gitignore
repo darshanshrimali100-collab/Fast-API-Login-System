@@ -4,3 +4,4 @@ database.sqlite3
 DATA
 /app/AUTH/JWT_auth.py
 /app/static
+/app/MODELS/query.txt

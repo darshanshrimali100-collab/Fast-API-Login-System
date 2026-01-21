@@ -123,7 +123,8 @@ def init_UserModelsDB():
                             DEFAULT (datetime('now')),
                 PRIMARY KEY (
                     ModelId,
-                    UserId
+                    UserId,
+                    ProjectId
                 )
             )
         """)
