@@ -288,3 +288,107 @@ class Models_database:
             "ModelUID": row[1],
             "ModelPath": row[2]
         }
+
+
+
+    @staticmethod
+    def rename_model(cursor, user_email: str, current_name: str, new_name: str) -> int:
+        result = cursor.execute(
+            """
+            UPDATE S_Models
+            SET ModelName = ?
+            WHERE ModelName = ?
+              AND OwnerId = ?
+            """,
+            (new_name, current_name, user_email)
+        ).fetchone()
+        return result
+
+    @staticmethod
+    def delete_model(cursor, user_email: str, model_name: str, project_name: str) -> int:
+    
+        row = cursor.execute(
+            """
+            SELECT m.ModelId, p.ProjectId
+            FROM S_Models m
+            JOIN S_UserModels um ON um.ModelId = m.ModelId
+            JOIN S_Projects p    ON p.ProjectId = um.ProjectId
+            WHERE m.ModelName   = ?
+              AND p.ProjectName = ?
+              AND p.UserEmail   = ?
+              AND um.UserId     = ?
+            """,
+            (model_name, project_name, user_email, user_email)
+        ).fetchone()
+    
+        if not row:
+            return 0
+    
+        model_id, project_id = row
+    
+        cursor.execute(
+            """
+            DELETE FROM S_UserModels
+            WHERE ModelId = ?
+              AND ProjectId = ?
+              AND UserId = ?
+            """,
+            (model_id, project_id, user_email)
+        )
+    
+        deleted = cursor.execute("SELECT changes()").fetchone()[0]
+    
+        if deleted == 0:
+            return 0
+    
+        still_used = cursor.execute(
+            "SELECT 1 FROM S_UserModels WHERE ModelId = ? LIMIT 1",
+            (model_id,)
+        ).fetchone()
+    
+        if still_used:
+            return 1
+    
+        cursor.execute(
+            "DELETE FROM S_Models WHERE ModelId = ? AND OwnerId = ?",
+            (model_id, user_email)
+        )
+    
+        return 1
+
+
+    @staticmethod
+    def move_model_to_project(cursor, user_email: str, model_name: str, project_name: str) -> int:
+        model = cursor.execute(
+            """
+            SELECT ModelId FROM S_Models
+            WHERE ModelName = ? AND OwnerId = ?
+            """,
+            (model_name, user_email)
+        ).fetchone()
+
+        if not model:
+            return 0
+
+        project = cursor.execute(
+            """
+            SELECT ProjectId FROM S_Projects
+            WHERE ProjectName = ? AND UserEmail = ?
+            """,
+            (project_name, user_email)
+        ).fetchone()
+
+        if not project:
+            return 0
+
+        result = cursor.execute(
+            """
+            UPDATE S_UserModels
+            SET ProjectId = ?
+            WHERE ModelId = ?
+              AND UserId = ?
+            """,
+            (project[0], model[0], user_email)
+        ).fetchone()
+
+        return result

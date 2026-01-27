@@ -5,3 +5,5 @@ DATA
 /app/AUTH/JWT_auth.py
 /app/static
 /app/MODELS/query.txt
+database.sqlite3-shm
+database.sqlite3-wal

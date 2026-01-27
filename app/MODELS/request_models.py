@@ -1,5 +1,6 @@
 import shutil
-from fastapi import HTTPException, APIRouter, Response, Depends
+from fastapi import HTTPException, APIRouter, Response, Depends, UploadFile, File
+from fastapi.responses import FileResponse
 from .database import Models_database, S_MODELS_COL, S_USERMODELS_COL
 from app.PROJECTS.modals import *
 from app.CORE.utility import *
@@ -271,4 +272,180 @@ def save_as_model(
         "source_model": existing_name,
         "new_model": new_name,
         "project": project_name
+    }
+
+
+@Model_router.post("/rename_model")
+def rename_model(
+    payload: RenameModelRequest,
+    email: str = Depends(get_current_user_email),
+    cursor = Depends(with_master_cursor)
+):
+    if payload.current_model_name == payload.new_model_name:
+        raise HTTPException(status_code=400, detail="New name must be different")
+
+    updated = Models_database.rename_model(
+        cursor,
+        email,
+        payload.current_model_name,
+        payload.new_model_name
+    )
+
+    if updated == 0:
+        raise HTTPException(status_code=400, detail="Model not found")
+
+    return {"message": "Model renamed successfully"}
+
+
+@Model_router.post("/delete_model")
+def delete_model(
+    payload: DeleteModelRequest,
+    email: str = Depends(get_current_user_email),
+    cursor = Depends(with_master_cursor)
+):
+    deleted = Models_database.delete_model(
+        cursor,
+        email,
+        payload.model_name,
+        payload.project_name
+    )
+
+    if deleted == 0:
+        raise HTTPException(status_code=400, detail="Model or project not found")
+
+    return {"message": "Model deleted successfully"}
+
+
+@Model_router.post("/move_to_project")
+def move_model_to_project(
+    payload: MoveModelToProjectRequest,
+    email: str = Depends(get_current_user_email),
+    cursor = Depends(with_master_cursor)
+):
+    updated = Models_database.move_model_to_project(
+        cursor,
+        email,
+        payload.model_name,
+        payload.project_name
+    )
+
+    if updated == 0:
+        raise HTTPException(status_code=400, detail="Model or project not found")
+
+    return {"message": "Model moved to project successfully"}
+
+
+@Model_router.post("/download_model")
+def download_model(
+    payload: DownloadModelRequest,
+    email: str = Depends(get_current_user_email),
+    cursor = Depends(with_master_cursor)
+):
+    model_name = payload.model_name
+    project_name = payload.project_name
+
+
+    if not model_name or not project_name:
+        raise HTTPException(400, "Both model_name and project_name are required")
+
+    # 1️⃣ Resolve project_id
+    project_id = Projects_database.get_project_id_for_user(cursor, email, project_name)
+    if not project_id:
+        raise HTTPException(404, f"Project '{project_name}' not found for user '{email}'")
+
+    # 2️⃣ Fetch model info from S_Models via project
+    model = Models_database.get_model_by_name_and_project(cursor, email, model_name, project_id)
+    if not model:
+        raise HTTPException(404, f"Model '{model_name}' not found in project '{project_name}'")
+
+    model_path = model.get("ModelPath")
+    if not model_path:
+        raise HTTPException(404, "Model path missing in database")
+
+    # 3️⃣ Check if file exists
+    if not os.path.exists(model_path):
+        raise HTTPException(404, f"Model file not found on server at {model_path}")
+
+    # 4️⃣ Return file for download
+    return FileResponse(
+        path=model_path,
+        filename=f"{model_name}.db",
+        media_type="application/octet-stream"
+    )
+
+
+@Model_router.post("/upload")
+def upload_model(
+    payload: UploadModelPayload = Depends(upload_payload),
+    file: UploadFile = File(...),
+    email: str = Depends(get_current_user_email),
+    cursor = Depends(with_master_cursor)
+):
+    model_name = payload.model_name
+    project_name = payload.project_name
+
+    # 🔒 File validation
+    if not file.filename.lower().endswith(".db"):
+        raise HTTPException(400, "Only .db files are allowed")
+
+    # 1️⃣ Resolve project
+    project_id = Projects_database.get_project_id_for_user(
+        cursor, email, project_name
+    )
+    if not project_id:
+        raise HTTPException(404, f"Project '{project_name}' not found")
+
+    # 2️⃣ Duplicate model name check
+    if Models_database.model_exists_in_project(
+        cursor, project_id, model_name
+    ):
+        raise HTTPException(
+            400,
+            f"Model '{model_name}' already exists in project '{project_name}'"
+        )
+
+    # 3️⃣ Generate UID + path
+    model_uid = str(uuid.uuid4())
+    db_path = os.path.join(DATA_FOLDER, f"{model_uid}.db")
+
+    # 4️⃣ Save file
+    try:
+        with open(db_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    finally:
+        file.file.close()
+
+    # 5️⃣ Insert into DB
+    try:
+        Models_database.add_model(
+            cursor,
+            model_uid,
+            model_name,
+            db_path,
+            email
+        )
+    except Exception:
+        if os.path.exists(db_path):
+            os.remove(db_path)
+        raise HTTPException(409, "Model already exists")
+
+    model_id = Models_database.get_model_id_by_name(
+        cursor, model_name, model_uid
+    )
+    if not model_id:
+        os.remove(db_path)
+        raise HTTPException(500, "Model insert failed")
+
+    Models_database.insert_user_model(
+        cursor,
+        model_id,
+        email,
+        project_id
+    )
+
+    return {
+        "model_name": model_name,
+        "project_name": project_name,
+        "owner": email,
+        "created_at": datetime.now(timezone.utc).isoformat()
     }
