@@ -170,6 +170,7 @@ def save_as_model(
     email: str = Depends(get_current_user_email),
     cursor = Depends(with_master_cursor)
 ):
+    # use add_user_model
     existing_name = payload.existing_model_name.strip()
     new_name = payload.new_model_name.strip()
     project_name = payload.project_name.strip()
@@ -261,6 +262,8 @@ def rename_model(
     email: str = Depends(get_current_user_email),
     cursor = Depends(with_master_cursor)
 ):
+    # use get_model_id_and_path to check if the new name exists with project name and username
+    # use that model_id to update S_Models set ModelName = new_name where ModelId = model_id
     if payload.current_model_name == payload.new_model_name:
         raise HTTPException(status_code=400, detail="New name must be different")
 

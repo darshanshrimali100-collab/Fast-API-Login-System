@@ -1,3 +1,4 @@
+from numpy import record
 from app.CORE.DB import with_master_cursor
 from fastapi import HTTPException
 from app.PROJECTS.database import Projects_database
@@ -40,6 +41,14 @@ class Models_database:
 
 
     # added 20-JAN-2026
+    @staticmethod
+    def assign_project_to_models2(cursor, user_email: str, model_dict: dict, new_project_name: str):
+        for old_project_name in model_dict:
+            model_names = model_dict[old_project_name]
+            for model_name in model_names:
+                Models_database.move_model_to_project2(cursor, user_email, model_name, old_project_name, new_project_name)
+
+
     @staticmethod
     def assign_project_to_models(cursor, user_email: str, model_names: list[str], project_name: str):
         """
@@ -383,13 +392,20 @@ class Models_database:
 
     @staticmethod
     def delete_model(cursor, user_email: str, model_name: str, project_name: str) -> int:
+
+        # use get_model_id_and_path
+
+        # also check if owner, delete from S_Models and user, else only delete from S_UserModels
+         # if deleted from S_Models then delete file also
+
     
         row = cursor.execute(
             """
             SELECT m.ModelId, p.ProjectId
-            FROM S_Models m
-            JOIN S_UserModels um ON um.ModelId = m.ModelId
-            JOIN S_Projects p    ON p.ProjectId = um.ProjectId
+            FROM S_Models m, S_UserModels um, S_Projects p
+            WHERE m.ModelId = um.ModelId
+              AND um.ProjectId = p.ProjectId
+              AND p.UserEmail   = um.UserId
             WHERE m.ModelName   = ?
               AND p.ProjectName = ?
               AND p.UserEmail   = ?
@@ -432,6 +448,27 @@ class Models_database:
         )
     
         return 1
+
+    @staticmethod
+    def move_model_to_project2(cursor, user_email: str, model_name: str, old_project_name: str, new_project_name: str) -> int:
+        old_record = Models_database.get_model_id_and_path(cursor, model_name, old_project_name, user_email)
+        if not old_record:
+            return 0
+        new_record = Models_database.get_model_id_and_path(cursor, model_name, new_project_name, user_email)
+        if new_record:
+            return 0
+        model_id, model_path = old_record["ModelId"], old_record["ModelPath"]
+        new_project_id = Projects_database.get_project_id_for_user(cursor, user_email, new_project_name)
+        old_project_id = Projects_database.get_project_id_for_user(cursor, user_email, old_project_name)
+        query = """UPDATE S_UserModels
+                    SET ProjectId = ?
+                    WHERE ModelId = ?
+                        AND UserId = ?
+                        AND ProjectId = ?
+                """
+        cursor.execute( query,
+            (new_project_id, model_id, user_email, old_project_id)
+        )                
 
 
     @staticmethod
