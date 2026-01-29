@@ -1,5 +1,6 @@
 from app.CORE.DB import with_master_cursor
 from fastapi import HTTPException
+from app.PROJECTS.database import Projects_database
 
 class S_MODELS_COL:
     ModelId     = 0
@@ -145,7 +146,81 @@ class Models_database:
         if row:
             return row[0]
         return None
+    
+    @staticmethod
+    def get_model_id_and_path(cursor, model_name: str,
+                            project_name: str,
+                            user_name: str):
+        query = """select S_Models.ModelId, S_Models.ModelPath
+                    from S_UserModels, S_Projects, S_Models
+                    WHERE S_UserModels.UserId = S_Projects.UserEmail
+                    AND   S_UserModels.ProjectId = S_Projects.ProjectId
+                    AND   S_UserModels.ModelId = S_Models.ModelId
+                    AND   S_Projects.ProjectName = ?
+                    AND   S_Models.ModelName = ?
+                    AND   S_UserModels.UserId = ?"""
+        row = cursor.execute(query, (project_name, model_name, user_name)).fetchone()
+        if row:
+            return {
+                "ModelId": row[0],
+                "ModelPath": row[1]
+            }
+        return False
 
+
+    @staticmethod
+    def add_user_model(
+        cursor,
+        model_uid: str,
+        model_name: str,
+        project_name: str,
+        db_path: str,
+        user_name: str,
+        role: str = "owner"
+    ):
+        
+        project_id = Projects_database.get_project_id_for_user(cursor, user_name, project_name)
+        if not project_id:
+            raise Exception("Project does not exist for user")
+        
+        record = Models_database.get_model_id_and_path(cursor, model_name, project_name, user_name)
+        if record:
+            raise Exception("Model already exists in project for user")
+        
+        model_id = cursor.execute(
+            """
+            INSERT INTO S_Models (
+                ModelUID,
+                ModelName,
+                ModelPath,
+                OwnerId
+            )
+            VALUES (?, ?, ?, ?)
+            RETURNING ModelId
+            """,
+            (
+                model_uid,
+                model_name,
+                db_path,
+                user_name
+            )
+        ).fetchone()[0]
+
+        cursor.execute(
+            """
+            INSERT INTO S_UserModels (
+                ModelId,
+                UserId,
+                ProjectId,
+                AccessLevel,
+                GrantedAt
+            )
+            VALUES (?, ?, ?, ?, datetime('now'))
+            """,
+            (model_id, user_name, project_id, role)
+        )
+
+        return True
     
     
     @staticmethod
@@ -161,23 +236,25 @@ class Models_database:
         Raises exception if model already exists (UNIQUE constraint).
         """
         try:
-            cursor.execute(
-                """
-                INSERT INTO S_Models (
-                    ModelUID,
-                    ModelName,
-                    ModelPath,
-                    OwnerId
-                )
-                VALUES (?, ?, ?, ?)
-                """,
-                (
-                    model_uid,
-                    model_name,
-                    db_path,
-                    owner_email
-                )
-            )
+            model_id = cursor.execute(
+                    """
+                    INSERT INTO S_Models (
+                        ModelUID,
+                        ModelName,
+                        ModelPath,
+                        OwnerId
+                    )
+                    VALUES (?, ?, ?, ?)
+                    RETURNING ModelId
+                    """,
+                    (
+                        model_uid,
+                        model_name,
+                        db_path,
+                        owner_email
+                    )
+                ).fetchone()[0]
+            print("Model added with ModelId:", model_id)
             return True
         except Exception as e:
             print("Exception occured in, add_model", str(e))

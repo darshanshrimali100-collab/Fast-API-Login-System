@@ -67,35 +67,15 @@ def add_new_model(
     model_uid = str(uuid.uuid4())
     db_path = os.path.join(DATA_FOLDER, f"{model_uid}.db")
 
-    project_id = Projects_database.get_project_id_for_user(cursor, email, project_name)
-    
-    if Models_database.model_exists_in_project(cursor, project_id, model_name):
-        raise HTTPException(status_code=400, detail=f"model already exits, model_name = {model_name}, project_name = {project_name}")
-    
-    # 4. Insert into S_Models (EMAIL AS OWNER)
-    try:
-        result = Models_database.add_model(cursor, model_uid, model_name, db_path, owner_email)
-    except Exception:
-        raise HTTPException(status_code=409, detail="Model already exists")
-    
-    if result == True: 
-        # insert details to S_UserModels
-        model_id = Models_database.get_model_id_by_name(cursor, model_name, model_uid)
+    result = Models_database.add_user_model(cursor, model_uid, model_name, project_name, db_path, email, "owner")
 
-        if project_id and model_id:
-            Models_database.insert_user_model(cursor, model_id, email, project_id)
-        else:
-            raise HTTPException(status_code=400, detail=f"details not found model_name = {model_name}, project_name = {project_name}")
-
-        # 3. Create SQLite DB from SQL file
+    if result == True:
         try:
             with sqlite3.connect(db_path) as model_db:
                 with open(sql_file, "r") as f:
                     model_db.executescript(f.read())
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"DB creation failed: {str(e)}")
-    else:
-        raise HTTPException(status_code=500, detail="DB operation failed")
 
     return {
         #"model_uid": model_uid,
