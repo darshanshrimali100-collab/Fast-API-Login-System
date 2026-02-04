@@ -1,8 +1,0 @@
-UPDATE S_UserModels
-SET ProjectId = S_Projects.ProjectId
-FROM S_Projects, S_Models
-WHERE S_Projects.UserEmail  = S_UserModels.UserId
-AND   S_Projects.ProjectName = 'Default Project'
-AND   S_Projects.UserEmail = 'apitest01@catchmail.io'
-AND   S_UserModels.ModelId = S_Models.ModelId
-AND   S_Models.ModelName = 'Sales Forecast Model 2';
