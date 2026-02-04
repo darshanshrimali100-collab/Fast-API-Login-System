@@ -2,7 +2,7 @@
 from app.AUTH.database import Database
 import json
 import sqlite3
-from ..CONFIG.config import DB_PATH
+from ..CONFIG.config import master_db as DB_PATH
 from app.CORE.connection import master_connection
 
 class ErrorLoggerDB:
