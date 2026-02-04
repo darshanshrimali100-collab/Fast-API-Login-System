@@ -9,3 +9,4 @@ database.sqlite3-shm
 database.sqlite3-wal
 __pycache__/
 .env
+/app/MODELS/database.py
