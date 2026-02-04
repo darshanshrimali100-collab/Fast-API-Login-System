@@ -85,6 +85,15 @@ def refresh_Token(token_v: str, email: str):
 
 @new_router.post("/login")
 def login(payload: LoginRequest, response: Response, cursor = Depends(with_master_cursor)):
+    
+    #User_email: str = Depends(get_current_user_email)
+
+    #if User_email:
+    #    raise HTTPException(
+    #        status_code=status.HTTP_409_CONFLICT,
+    #        detail="User already LoggedIn. a session is already running"
+    #    )
+    
     email = payload.email
     password = payload.password
 
@@ -194,7 +203,14 @@ def Logout(request: Request, response: Response, cursor = Depends(with_master_cu
 # Signup
 
 @new_router.post("/signup")
-def signup(payload: SignupRequest, cursor = Depends(with_master_cursor)):
+def signup(payload: SignupRequest, cursor = Depends(with_master_cursor), User_email: str = Depends(get_current_user_email)):
+    
+    if User_email:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User already LoggedIn. a session is already running"
+        )
+    
     name = payload.name
     email = payload.email
     password = payload.password
@@ -231,8 +247,15 @@ def signup(payload: SignupRequest, cursor = Depends(with_master_cursor)):
 
 
 @new_router.get("/activate")
-def activate_account(response: Response, id: str = Query(...), cursor = Depends(with_master_cursor)):
+def activate_account(response: Response, id: str = Query(...), cursor = Depends(with_master_cursor), User_email: str = Depends(get_current_user_email)):
     try:
+
+        if User_email:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="User already LoggedIn. a session is already running"
+            )
+
         # 1. Validate verification code
         record = Database.verification_code_operations(cursor, "get", id)
         if not record:
