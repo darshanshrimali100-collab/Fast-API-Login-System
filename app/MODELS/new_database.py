@@ -465,7 +465,7 @@ class Models_database:
 
 
         # 2. Duplicate model check
-        model_id, model_path = Models_database.get_model_id_and_path(
+        model_id, old_model_path = Models_database.get_model_id_and_path(
             cursor,
             model_name,
             project_name,
@@ -478,37 +478,13 @@ class Models_database:
                 detail=f"Model '{model_name}' or '{project_name} does not exist.'"
             )
 
-        # 3. Generate UID + path
-        new_model_uid = str(uuid.uuid4())
-        new_db_path = os.path.join(DATA_FOLDER, f"{new_model_uid}.db")
-
-        # 4. Save file to disk
+        # 3. Save file to disk
         try:
-            with open(new_db_path, "wb") as buffer:
+            with open(old_model_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
         finally:
             file.file.close()
 
-        # 5. Insert DB record
-        try:
-            # ?
-            Models_database.update_model_by_id(
-                cursor,
-                model_id,
-                new_model_uid,
-                new_db_path,
-                owner_email
-
-            )
-        except Exception:
-            # rollback filesystem side-effect
-            if os.path.exists(new_db_path):
-                os.remove(new_db_path)
-
-            raise HTTPException(
-                status_code=409,
-                detail="Model already exists"
-            )
 
         return {
             "model_name": model_name,
@@ -712,19 +688,3 @@ class Models_database:
         ).fetchone()
         return row[0] if row else None
 
-
-    @staticmethod
-    def update_model_by_id(cursor, model_id, new_model_uid, new_model_path, owner_email):
-
-        row = cursor.execute(
-            """
-            UPDATE S_Models
-            SET ModelUID = ?,
-                ModelPath = ?
-            WHERE ModelId = ?
-              AND OwnerId = ?
-            """,
-            (new_model_uid, new_model_path, model_id, owner_email)
-        ).fetchone()
-
-        return row
