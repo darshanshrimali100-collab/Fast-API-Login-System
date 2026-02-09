@@ -1,4 +1,4 @@
-import sqlite3
+import sqlite3, apsw
 from typing import Optional
 from app.SCHEMA.schema_info import schema_info
 import uuid
@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 import shutil
 from datetime import datetime, timezone
 from .models import *
+
 
 
 class Models_database:
@@ -242,7 +243,9 @@ class Models_database:
 
         # 3. Copy DB file
         try:
-            shutil.copyfile(old_db_path, new_db_path)
+            connection = apsw.Connection(old_db_path)
+            connection.execute(f"VACUUM INTO '{new_db_path}'")
+            connection.close()
         except Exception as e:
             raise HTTPException(
                 status_code=500,
@@ -413,6 +416,8 @@ class Models_database:
         model_name = payload.model_name.strip()
         project_name = payload.project_name.strip()
 
+
+        # Comment for Darshan:  Not tested, get_model_id_and_path is returning dict ??, please test all cases
         # 1. check duplicate
         model_id, model_path = Models_database.get_model_id_and_path(
             cursor,
@@ -433,6 +438,10 @@ class Models_database:
                 status_code=404,
                 detail=f"Model file not found on server at {model_path}"
             )
+        
+        # ensure all data is flushed to disk before sending file
+        with sqlite3.connect(model_path) as conn:
+            conn.execute("PRAGMA WAL_CHECKPOINT(TRUNCATE)")
 
         # 3. Return file
         return FileResponse(
@@ -465,7 +474,7 @@ class Models_database:
 
 
         # 2. Duplicate model check
-        model_id, old_model_path = Models_database.get_model_id_and_path(
+        model_id, model_path = Models_database.get_model_id_and_path(
             cursor,
             model_name,
             project_name,
@@ -477,14 +486,33 @@ class Models_database:
                 status_code=400,
                 detail=f"Model '{model_name}' or '{project_name} does not exist.'"
             )
+        
+        temp_model_uid = str(uuid.uuid4())
+        temp_db_path = os.path.join(DATA_FOLDER, f"{temp_model_uid}.db")
 
         # 3. Save file to disk
+        error_flag = False
         try:
-            with open(old_model_path, "wb") as buffer:
+            with open(temp_db_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
+
+            temp_conn = apsw.Connection(model_path)
+            shell = apsw.Shell(db=temp_conn)
+            shell.process_command(f".restore '{temp_db_path}'")
+            shell.process_sql("PRAGMA WAL_CHECKPOINT('TRUNCATE')")
+            temp_conn.close()
+        except Exception as e:
+            error_flag = True
         finally:
             file.file.close()
 
+        if os.path.exists(temp_db_path):
+            os.remove(temp_db_path)
+        if error_flag:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to upload and register model file"
+            )
 
         return {
             "model_name": model_name,
@@ -574,6 +602,8 @@ class Models_database:
             "DELETE FROM S_Models WHERE ModelId = ? AND OwnerId = ?",
             (model_id, email)
         )
+
+        # delete model file and all backups from disk
 
         return 1
 
