@@ -1,7 +1,10 @@
 from pydantic import BaseModel,field_validator
 from typing import List, Dict
+from pydantic import BaseModel,field_validator
+from typing import List, Dict
 from fastapi import Form
 
+#extend base class for project_name and model_name.
 
 class AddModelRequest(BaseModel):
     model_name: str
@@ -20,6 +23,7 @@ class AddModelRequest(BaseModel):
             raise ValueError("Model name and project name and model template are required")
         return v.strip()
 
+    
 class AssignModelsRequest(BaseModel):
     target_project: str
     models_by_project: Dict[str, List[str]]
@@ -37,6 +41,9 @@ class AssignModelsRequest(BaseModel):
         if not v:
             raise ValueError("No models provided")
         return v
+    target_project: str
+    models_by_project: Dict[str, List[str]]
+
 
 class SaveAsModelRequest(BaseModel):
     current_project_name: str
@@ -56,6 +63,8 @@ class SaveAsModelRequest(BaseModel):
             raise ValueError("Model name and project name are required")
         return v.strip()
 
+    
+
 
 class RenameModelRequest(BaseModel):
     current_project_name: str
@@ -72,6 +81,8 @@ class RenameModelRequest(BaseModel):
         if not v or not v.strip():
             raise ValueError("Model name and project name are required")
         return v.strip()
+
+    
 
 
 class DeleteModelRequest(BaseModel):
@@ -90,6 +101,8 @@ class DeleteModelRequest(BaseModel):
             raise ValueError("current project name , Model name and project name are required")
         return v.strip()
 
+    
+
 class MoveModelToProjectRequest(BaseModel):
     current_project_name: str
     model_name: str
@@ -105,6 +118,8 @@ class MoveModelToProjectRequest(BaseModel):
         if not v or not v.strip():
             raise ValueError("current project name , Model name and project name are required")
         return v.strip()
+
+    
 
 class DownloadModelRequest(BaseModel):
     current_project_name: str
@@ -122,6 +137,7 @@ class DownloadModelRequest(BaseModel):
             raise ValueError("current project name , Model name and project name are required")
         return v.strip()
 
+    
 class UploadModelPayload(BaseModel):
     current_project_name: str
     model_name: str 
@@ -149,3 +165,59 @@ def upload_payload(
             model_name=model_name,
             project_name=project_name
         )
+
+class BackupModelPayload(BaseModel):
+    current_project_name: str
+    model_name: str 
+    user_comment: str
+
+    @field_validator(
+        "current_project_name",
+        "model_name",
+        "user_comment"
+    )
+    @classmethod
+    def non_empty_strings(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("current project name , Model name and project name are required")
+        return v.strip()
+
+class RestoreModelPayload(BaseModel):
+    current_project_name: str
+    model_name: str 
+    Backup_id: str
+
+    @field_validator(
+        "current_project_name",
+        "model_name",
+        "Backup_id"
+    )
+    @classmethod
+    def non_empty_strings(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("current project name , Model name and project name are required")
+        return v.strip()
+
+
+class ShareModelPayload(BaseModel):
+    touser_email: str
+    modelname: str
+    project_name: str
+    access_level: str   # e.g. "read", "write"
+    title: str
+    message: str
+
+    @field_validator(
+        "touser_email",
+        "modelname",
+        "project_name",
+        "access_level",
+        "title",
+        "message"
+    )
+    @classmethod
+    def non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("All fields are required")
+        return v.strip()
+
