@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Response, Depends, UploadFile, File
 from .new_database import Models_database
+from fastapi import APIRouter, Response, Depends, UploadFile, File
+from .new_database import Models_database
 from app.PROJECTS.modals import *
 from app.CORE.utility import *
 from app.CORE.DB import with_master_cursor
@@ -37,12 +39,23 @@ def add_new_model(
         owner_email=email
     )
 
+    return Models_database.create_model(
+        cursor=cursor,
+        payload=payload,
+        owner_email=email
+    )
+
 @Model_router.post("/add_existing_model")
 def add_existing_model(
     payload: AssignModelsRequest,
     email: str = Depends(get_current_user_email),
     cursor = Depends(with_master_cursor)
 ):
+    return Models_database.assign_existing_models(
+        cursor=cursor,
+        payload=payload,
+        owner_email=email
+    )
     return Models_database.assign_existing_models(
         cursor=cursor,
         payload=payload,
@@ -59,12 +72,20 @@ def get_user_models(
         cursor=cursor,
         user_email=email
     )
+    return Models_database.get_user_models(
+        cursor=cursor,
+        user_email=email
+    )
 
 @Model_router.post("/get_user_models_by_project")
 def get_user_models_by_project(
     email: str = Depends(get_current_user_email),
     cursor = Depends(with_master_cursor)
 ):
+    return Models_database.get_user_models_grouped_by_project(
+        cursor=cursor,
+        user_email=email
+    )
     return Models_database.get_user_models_grouped_by_project(
         cursor=cursor,
         user_email=email
@@ -83,12 +104,24 @@ def save_as_model(
     )
 
 #
+    return Models_database.save_as_model(
+        cursor=cursor,
+        payload=payload,
+        owner_email=email
+    )
+
+#
 @Model_router.post("/rename_model")
 def rename_model(
     payload: RenameModelRequest,
     email: str = Depends(get_current_user_email),
     cursor = Depends(with_master_cursor)
 ):
+    return Models_database.rename_model(
+        cursor=cursor,
+        payload=payload,
+        owner_email=email
+    )
     return Models_database.rename_model(
         cursor=cursor,
         payload=payload,
@@ -106,6 +139,11 @@ def delete_model(
         payload=payload,
         owner_email=email
     )
+    return Models_database.delete_model(
+        cursor=cursor,
+        payload=payload,
+        owner_email=email
+    )
 
 @Model_router.post("/move_to_project")
 def move_model_to_project(
@@ -118,13 +156,23 @@ def move_model_to_project(
         payload=payload,
         owner_email=email
     )
+    return Models_database.move_model_to_project(
+        cursor=cursor,
+        payload=payload,
+        owner_email=email
+    )
 
-@Model_router.post("/download_model")
+@Model_router.post("/download_model", response_class=FileResponse)
 def download_model(
     payload: DownloadModelRequest,
     email: str = Depends(get_current_user_email),
     cursor = Depends(with_master_cursor)
 ):
+    return Models_database.download_model(
+        cursor=cursor,
+        payload=payload,
+        owner_email=email
+    )
     return Models_database.download_model(
         cursor=cursor,
         payload=payload,
@@ -138,6 +186,12 @@ def upload_model(
     email: str = Depends(get_current_user_email),
     cursor = Depends(with_master_cursor)
 ):
+    return Models_database.upload_model(
+        cursor=cursor,
+        payload=payload,
+        file=file,
+        owner_email=email
+    )
     return Models_database.upload_model(
         cursor=cursor,
         payload=payload,

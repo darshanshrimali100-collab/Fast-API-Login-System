@@ -8,3 +8,7 @@ DATA
 database.sqlite3-shm
 database.sqlite3-wal
 /app/MODELS/database.py
+
+__pycache__/
+.env
+/app/MODELS/database.py
