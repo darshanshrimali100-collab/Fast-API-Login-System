@@ -180,3 +180,5 @@ def with_master_cursor() -> Generator:
     #except Exception as e:
     #    # Unexpected DB error
     #    raise HTTPException(status_code=500, detail=str(e))
+
+
