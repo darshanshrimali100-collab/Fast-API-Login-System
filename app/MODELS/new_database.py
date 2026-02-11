@@ -1,4 +1,4 @@
-import sqlite3, apsw
+import sqlite3
 from typing import Optional
 from app.SCHEMA.schema_info import schema_info
 import uuid
@@ -9,7 +9,6 @@ from fastapi.responses import FileResponse
 import shutil
 from datetime import datetime, timezone
 from .models import *
-
 
 
 class Models_database:
@@ -54,13 +53,13 @@ class Models_database:
         # ---------- DB insert ----------
 
         created = Models_database.add_user_model(
-            cursor=cursor,
-            model_uid=model_uid,
-            model_name=model_name,
-            project_name=project_name,
-            db_path=db_path,
-            email=owner_email,
-            access_level="owner"
+            cursor,
+            model_uid,
+            model_name,
+            project_name,
+            db_path,
+            owner_email,
+            "owner"
         )
 
         if not created:
@@ -117,11 +116,11 @@ class Models_database:
                     continue
 
                 updated = Models_database.move_model_to_project2(
-                    cursor=cursor,
-                    email=owner_email,
-                    model_name=model_name,
-                    source_project=source_project,
-                    target_project=target_project
+                    cursor,
+                    owner_email,
+                    model_name,
+                    source_project,
+                    target_project
                 )
 
                 total_updated += updated
@@ -150,8 +149,8 @@ class Models_database:
         """
 
         rows = Models_database.get_models_by_email(
-            cursor=cursor,
-            email=user_email
+            cursor,
+            user_email
         )
 
         if not rows:
@@ -181,8 +180,8 @@ class Models_database:
         """
 
         rows = Models_database.get_models_by_user_grouped(
-            cursor=cursor,
-            email=user_email
+            cursor,
+            user_email
         )
 
         if not rows:
@@ -243,9 +242,7 @@ class Models_database:
 
         # 3. Copy DB file
         try:
-            connection = apsw.Connection(old_db_path)
-            connection.execute(f"VACUUM INTO '{new_db_path}'")
-            connection.close()
+            shutil.copyfile(old_db_path, new_db_path)
         except Exception as e:
             raise HTTPException(
                 status_code=500,
@@ -254,13 +251,13 @@ class Models_database:
 
         # 4. Insert new model entry
         created = Models_database.add_user_model(
-            cursor=cursor,
-            model_uid=new_uid,
-            model_name=new_name,
-            project_name=project_name,
-            db_path=new_db_path,
-            email=owner_email,
-            access_level="owner"
+            cursor,
+            new_uid,
+            new_name,
+            project_name,
+            new_db_path,
+            owner_email,
+            "owner"
         )
 
         if not created:
@@ -321,11 +318,11 @@ class Models_database:
             )
 
         updated = Models_database.rename_model_(
-            cursor=cursor,
-            email=owner_email,
-            old_name=current_model_name,
-            new_name=new_model_name,
-            model_id=model_id
+            cursor,
+            owner_email,
+            current_model_name,
+            new_model_name,
+            model_id
         )
 
         if not updated:
@@ -353,10 +350,10 @@ class Models_database:
         project_name = payload.project_name.strip()
 
         deleted = Models_database.delete_model_(
-            cursor=cursor,
-            email=owner_email,
-            model_name=model_name,
-            project_name=project_name
+            cursor,
+            owner_email,
+            model_name,
+            project_name
         )
 
         if not deleted:
@@ -384,11 +381,11 @@ class Models_database:
         target_project_name = payload.project_name.strip()
 
         updated = Models_database.move_model_to_project2(
-            cursor=cursor,
-            email=owner_email,
-            model_name=model_name,
-            old_project_name=source_project_name,
-            new_project_name=target_project_name
+            cursor,
+            owner_email,
+            model_name,
+            source_project_name,
+            target_project_name
         )
 
         if not updated:
@@ -416,8 +413,6 @@ class Models_database:
         model_name = payload.model_name.strip()
         project_name = payload.project_name.strip()
 
-
-        # Comment for Darshan:  Not tested, get_model_id_and_path is returning dict ??, please test all cases
         # 1. check duplicate
         model_id, model_path = Models_database.get_model_id_and_path(
             cursor,
@@ -438,10 +433,6 @@ class Models_database:
                 status_code=404,
                 detail=f"Model file not found on server at {model_path}"
             )
-        
-        # ensure all data is flushed to disk before sending file
-        with sqlite3.connect(model_path) as conn:
-            conn.execute("PRAGMA WAL_CHECKPOINT(TRUNCATE)")
 
         # 3. Return file
         return FileResponse(
@@ -474,7 +465,7 @@ class Models_database:
 
 
         # 2. Duplicate model check
-        model_id, model_path = Models_database.get_model_id_and_path(
+        model_id, old_model_path = Models_database.get_model_id_and_path(
             cursor,
             model_name,
             project_name,
@@ -486,33 +477,14 @@ class Models_database:
                 status_code=400,
                 detail=f"Model '{model_name}' or '{project_name} does not exist.'"
             )
-        
-        temp_model_uid = str(uuid.uuid4())
-        temp_db_path = os.path.join(DATA_FOLDER, f"{temp_model_uid}.db")
 
         # 3. Save file to disk
-        error_flag = False
         try:
-            with open(temp_db_path, "wb") as buffer:
+            with open(old_model_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
-
-            temp_conn = apsw.Connection(model_path)
-            shell = apsw.Shell(db=temp_conn)
-            shell.process_command(f".restore '{temp_db_path}'")
-            shell.process_sql("PRAGMA WAL_CHECKPOINT('TRUNCATE')")
-            temp_conn.close()
-        except Exception as e:
-            error_flag = True
         finally:
             file.file.close()
 
-        if os.path.exists(temp_db_path):
-            os.remove(temp_db_path)
-        if error_flag:
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to upload and register model file"
-            )
 
         return {
             "model_name": model_name,
@@ -520,6 +492,223 @@ class Models_database:
             "owner": owner_email,
             "created_at": datetime.now(timezone.utc).isoformat()
         }
+
+
+    @staticmethod
+    def BackupModel(
+        *,
+        cursor,
+        payload: BackupModelPayload ,
+        owner_email: str
+    ):
+
+        project_name = payload.current_project_name
+        model_name = payload.model_name
+        user_comment = payload.user_comment
+
+        model_id, model_path = Models_database.get_model_id_and_path(
+            cursor,
+            model_name,
+            project_name,
+            owner_email
+        )
+
+        if not model_id:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Model '{model_name}' not found in project '{project_name}'"
+            )
+
+        if not os.path.exists(model_path):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Model file does not exist on disk"
+            )
+
+        backup_id = Models_database.model_backup(
+            cursor,
+            model_id,
+            user_comment,
+            backup_path
+        )
+
+        if not backup_id:
+            raise HTTPException(
+                status_code=404,
+                detail=f"coudnt update S_modelBackups"
+            )
+
+        backup_root = os.path.join(os.getcwd(), "BACKUP", project_name)
+        os.makedirs(backup_root, exist_ok=True)
+
+        backup_filename = f"{project_name}_{model_name}_{backup_id}.db"
+        backup_path = os.path.join(backup_root, backup_filename)
+
+        # check if file already exists at backup path, if yes reaise error
+        if os.path.exists(backup_path):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Backup already exists"
+            )
+
+        shutil.copy2(model_path, backup_path)
+
+        return {
+            "message": "model backed up successfully",
+            "model_name": model_name,
+            "project_name": project_name,
+        }
+
+    @staticmethod
+    def RestoreModel(
+        *,
+        cursor,
+        payload: RestoreModelPayload ,
+        owner_email: str
+    ):
+        project_name = payload.current_project_name
+        model_name = payload.model_name
+
+        model_id, model_path = Models_database.get_model_id_and_path(
+            cursor,
+            model_name,
+            project_name,
+            owner_email
+        )
+
+        if not model_id:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Model '{model_name}' not found in project '{project_name}'"
+            )
+
+        backup_path = Models_database.get_backup_model_path(
+            cursor,
+            model_id,
+        )
+
+        # note :-
+        #add backup_id, how do we get Backup_id, do we need to send this to user at time of /Backup ?
+
+        if not backup_path:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Backup model not found"
+            )
+
+        if not os.path.exists(backup_path):
+            raise FileNotFoundError("Backup file missing on disk")
+
+        os.makedirs(DATA_FOLDER, exist_ok=True)
+
+        restored_filename = os.path.basename(backup_path)
+        restored_path = os.path.join(data_dir, restored_filename)
+
+        shutil.copy2(backup_path, restored_path)
+
+        return {
+            "message": "model restored successfully",
+            "project_name": payload.project_name,
+            "model_name": payload.model_name
+        }
+
+
+    @staticmethod
+    def ShareModel(
+        *,
+        cursor,
+        payload: ShareModelPayload,
+        owner_email: str
+    ):
+        
+        fromuser_email = owner_email
+
+        if fromuser_email == payload.touser_email:
+            raise HTTPException(
+                status_code=400,
+                detail="You cannot share a model with yourself"
+            )
+
+        model_id, model_path = Models_database.get_model_id_and_path(
+            cursor,
+            payload.model_name,
+            payload.project_name,
+            owner_email
+        )
+
+        if not model_id:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Model '{payload.model_name}' "
+                    f"not found in project '{payload.project_name}'"
+                )
+            )
+
+        notification_params = {
+            "model_name": payload.model_name,
+            "project_name": payload.project_name,
+            "access_level": payload.access_level
+        }
+
+        notification_id = Models_database.create_notification(
+            cursor,
+            from_user_email=fromuser_email,
+            to_user_email=payload.touser_email,
+            title=payload.title,
+            message=payload.message,
+            notification_type="MODEL_SHARE",
+            notification_params={
+                "model_name": payload.model_name,
+                "project_name": payload.project_name,
+                "access_level": payload.access_level
+            }
+        )
+
+        if not notification_id:
+            raise HTTPException(
+                status_code=404,
+                detail= "cannot send notification now."
+            )
+
+        return {
+            "message": "Model shared successfully",
+            "model_name": payload.model_name,
+            "project_name": payload.project_name,
+            "shared_with": payload.touser_email
+        }
+
+
+    @staticmethod
+    def Get_Notifications(
+        *,
+        cursor,
+        owner_email: str
+    ):
+
+        notifications = ModelsDatabase.get_user_notifications(
+            cursor,
+            owner_email
+        )
+
+        if not notifications:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No Notifications found for user: {owner_email}"
+            )
+
+        return notifications
+
+    @staticmethod
+    def is_share_model_request_accepted(
+        *,
+        cursor,
+        owner_email: str
+    ):
+
+        # note:-
+        # do i need to send notification_id with user at the time of /share, 
+        # for user to fetch wether that request is accepted or not ?
 
 
 # -----------------------   DATABASE METHODS  ----------------------
@@ -603,8 +792,6 @@ class Models_database:
             (model_id, email)
         )
 
-        # delete model file and all backups from disk
-
         return 1
 
 
@@ -622,22 +809,18 @@ class Models_database:
                     AND   S_UserModels.UserId = ?"""
         row = cursor.execute(query, (project_name, model_name, user_name)).fetchone()
         if row:
-            return {
-                "ModelId": row[0],
-                "ModelPath": row[1]
-            }
-        return False
+            return row[0], row[1]
+        return None, None
 
 
     @staticmethod
     def move_model_to_project2(cursor, user_email: str, model_name: str, old_project_name: str, new_project_name: str) -> int:
-        old_record = Models_database.get_model_id_and_path(cursor, model_name, old_project_name, user_email)
-        if not old_record:
+        old_Model_id, old_Model_path = Models_database.get_model_id_and_path(cursor, model_name, old_project_name, user_email)
+        if not old_Model_id:
             return 0
-        new_record = Models_database.get_model_id_and_path(cursor, model_name, new_project_name, user_email)
-        if new_record:
+        new_Model_id, new_Model_path = Models_database.get_model_id_and_path(cursor, model_name, new_project_name, user_email)
+        if new_Model_id:
             return 0
-        model_id, model_path = old_record["ModelId"], old_record["ModelPath"]
         new_project_id = Models_database.get_project_id(cursor, user_email, new_project_name)
         old_project_id = Models_database.get_project_id(cursor, user_email, old_project_name)
         query = """UPDATE S_UserModels
@@ -647,7 +830,7 @@ class Models_database:
                         AND ProjectId = ?
                 """
         cursor.execute( query,
-            (new_project_id, model_id, user_email, old_project_id)
+            (new_project_id, old_Model_id, user_email, old_project_id)
         )                
 
 
@@ -666,8 +849,8 @@ class Models_database:
         if not project_id:
             raise Exception("Project does not exist for user")
         
-        record = Models_database.get_model_id_and_path(cursor, model_name, project_name, user_name)
-        if record:
+        _Model_id, _Model_path = Models_database.get_model_id_and_path(cursor, model_name, project_name, user_name)
+        if _Model_id:
             raise Exception("Model already exists in project for user")
         
         model_id = cursor.execute(
@@ -718,3 +901,111 @@ class Models_database:
         ).fetchone()
         return row[0] if row else None
 
+    @staticmethod
+    def model_backup(
+        cursor,
+        *,
+        model_id: int,
+        backup_text: str,
+        backup_path: str
+    ):
+        row = cursor.execute(
+            """
+            INSERT INTO S_ModelBackups (
+                BackupText,
+                ModelId,
+                BackupPath
+            )
+            VALUES (?, ?, ?)
+            RETURNING BackupId
+            """,
+            (backup_text, model_id, backup_path)
+        ).fetchone()
+
+        return row[0]
+
+
+    @staticmethod
+    def get_backup_path(
+        cursor,
+        model_id: int
+    ):
+
+        row = cursor.execute(
+            """
+            SELECT BackupPath
+            FROM S_backupmodel
+            WHERE ModelId = ?
+            """,
+            (model_id,)
+        ).fetchone()
+
+        return row[0] if row else None
+
+
+    @staticmethod
+    def create_notification(
+        cursor,
+        *,
+        from_user_email: str,
+        to_user_email: str,
+        title: str,
+        message: str,
+        notification_type: str,
+        notification_params: Optional[dict]
+    ):
+
+        params_text = (
+            json.dumps(notification_params)
+            if notification_params is not None
+            else None
+        )
+
+        row = cursor.execute(
+            """
+            INSERT INTO S_UserNotifications (
+                FromUserEmail,
+                ToUserEmail,
+                Title,
+                Message,
+                NotificationType,
+                NotificationParams,
+                IsRead,
+                IsAccepted
+            )
+            VALUES (?, ?, ?, ?, ?, ?, 0,0)
+            RETURNING NotificationId
+            """,
+            (
+                from_user_email,
+                to_user_email,
+                title,
+                message,
+                notification_type,
+                params_text
+            )
+        ).fetchone()
+
+        return row[0]
+
+
+    @staticmethod
+    def get_user_notifications(
+        cursor,
+        user_email
+    ):
+
+        rows = cursor.execute(
+            """
+                SELECT Message
+            FROM S_UserNotifications
+            WHERE
+                ToUserEmail = ?
+                AND IsRead = 0
+                AND IsAccepted = 0
+            ORDER BY CreatedAt DESC
+            """,
+            (user_email,)
+        ).fetchall()
+
+        return [row["Message"] for row in rows]
