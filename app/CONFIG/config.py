@@ -4,11 +4,10 @@ from pathlib import Path
 
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-master_db = str(BASE_DIR / "database.sqlite3")
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent  # config.py -> app/ -> parent
-load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+master_db = str(Path(__file__).resolve().parent.parent / "database.sqlite3")
+ENV_PATH = BASE_DIR / "config.env"
+load_dotenv(ENV_PATH)
 
 # JWT & cookie settings
 SECRET_KEY = os.getenv("SECRET_KEY")
@@ -20,7 +19,7 @@ TEST_MODE = os.getenv("TEST", "false").lower() == "true"
 CORS_URL = os.getenv("CORS_URL")
 SMTP_MAIL = os.getenv("SMTP_MAIL")
 SMTP_PWD = os.getenv("SMTP_PWD")
-master_db = os.getenv("DB_PATH")
+#master_db = os.getenv("DB_PATH")
 
 # Used In Models router
 DATA_FOLDER = os.path.join(os.getcwd(), "app", "DATA")

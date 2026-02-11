@@ -158,4 +158,5 @@ def startup_db():
     init_ErrorDB()
     init_ModelsDB()
     init_UserModelsDB()
+    init_UserNotificationDB()
 

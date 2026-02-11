@@ -144,7 +144,34 @@ def init_ModelsDB():
                 OwnerId     TEXT
             )
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS S_ModelBackups (
+                BackupId   INTEGER PRIMARY KEY AUTOINCREMENT,
+                BackupText TEXT NOT NULL,
+                ModelId    INTEGER NOT NULL,
+                BackupPath TEXT NOT NULL,
+                CreatedAt  TEXT NOT NULL DEFAULT (datetime('now')),
+                LastUsedAt TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
 
+def init_UserNotificationDB():
+    with master_connection() as cursor:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS S_UserNotifications (
+                NotificationId INTEGER PRIMARY KEY AUTOINCREMENT,
+                FromUserEmail TEXT NOT NULL,
+                ToUserEmail TEXT NOT NULL,
+                Title TEXT NOT NULL,
+                Message TEXT NOT NULL,
+                NotificationType TEXT,
+                NotificationParams TEXT,
+                IsRead INTEGER DEFAULT 0,
+                CreatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+                ReadAt TEXT DEFAULT NULL,
+                IsAccepted INTEGER DEFAULT 0
+            )
+        """)
 
 def with_master_cursor() -> Generator:
     #try:
