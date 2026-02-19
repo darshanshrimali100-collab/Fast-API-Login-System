@@ -1,5 +1,6 @@
 from app.CORE.connection import master_connection
 from app.CORE.DB import with_master_cursor
+from app.MODELS.new_database import *
 
 class PROJECT_COL:
     ProjectId = 0
@@ -160,10 +161,33 @@ class Projects_database:
 
             return row is not None
             
-
     @staticmethod
     def delete_project(cursor ,user_email: str, project_name: str):
-        #with master_connection() as cursor:
+        #pehle saare models delete is project ke,
+        #fir project delete hoga.
+        #fetch all modelsid referrening to this project.
+        #delete all models of this project
+        #than continue.
+
+            models = cursor.execute(
+                """
+                SELECT um.ModelName
+                FROM S_UserModels um
+                JOIN S_Projects p ON p.ProjectId = um.ProjectId
+                WHERE p.ProjectName = ?
+                AND um.UserId = ?
+                """,
+                (project_name, user_email),
+            )
+
+            result = 0
+
+            for (model,) in models:
+                result = Models_database.delete_model_(cursor, user_email, model, project_name)
+
+            if result == 0:
+                return None
+
             cursor.execute(
                 """
                 DELETE FROM S_Projects
