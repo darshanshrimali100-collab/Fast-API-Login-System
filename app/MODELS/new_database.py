@@ -1,4 +1,5 @@
 import sqlite3
+import sqlite3
 from typing import Optional
 from app.SCHEMA.schema_info import schema_info
 import uuid
@@ -53,6 +54,13 @@ class Models_database:
         # ---------- DB insert ----------
 
         created = Models_database.add_user_model(
+            cursor,
+            model_uid,
+            model_name,
+            project_name,
+            db_path,
+            owner_email,
+            "owner"
             cursor,
             model_uid,
             model_name,
@@ -121,6 +129,11 @@ class Models_database:
                     model_name,
                     source_project,
                     target_project
+                    cursor,
+                    owner_email,
+                    model_name,
+                    source_project,
+                    target_project
                 )
 
                 total_updated += updated or 0
@@ -149,6 +162,8 @@ class Models_database:
         """
 
         rows = Models_database.get_models_by_email(
+            cursor,
+            user_email
             cursor,
             user_email
         )
@@ -180,6 +195,8 @@ class Models_database:
         """
 
         rows = Models_database.get_models_by_user_grouped(
+            cursor,
+            user_email
             cursor,
             user_email
         )
@@ -245,6 +262,7 @@ class Models_database:
 
         # 3. Copy DB file
         try:
+            shutil.copyfile(old_db_path, new_db_path)
             shutil.copyfile(old_db_path, new_db_path)
         except Exception as e:
             raise HTTPException(
@@ -326,6 +344,11 @@ class Models_database:
             current_model_name,
             new_model_name,
             model_id
+            cursor,
+            owner_email,
+            current_model_name,
+            new_model_name,
+            model_id
         )
 
         if not updated:
@@ -357,6 +380,10 @@ class Models_database:
             owner_email,
             model_name,
             project_name
+            cursor,
+            owner_email,
+            model_name,
+            project_name
         )
 
         if not deleted:
@@ -384,6 +411,11 @@ class Models_database:
         target_project_name = payload.project_name.strip()
 
         updated = Models_database.move_model_to_project2(
+            cursor,
+            owner_email,
+            model_name,
+            source_project_name,
+            target_project_name
             cursor,
             owner_email,
             model_name,
@@ -469,6 +501,7 @@ class Models_database:
 
         # 2. Duplicate model check
         model_id, old_model_path = Models_database.get_model_id_and_path(
+        model_id, old_model_path = Models_database.get_model_id_and_path(
             cursor,
             model_name,
             project_name,
@@ -483,6 +516,7 @@ class Models_database:
 
         # 3. Save file to disk
         try:
+            with open(old_model_path, "wb") as buffer:
             with open(old_model_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
         finally:
@@ -1069,13 +1103,19 @@ class Models_database:
         if row:
             return row[0], row[1]
         return None, None
+            return row[0], row[1]
+        return None, None
 
 
     @staticmethod
     def move_model_to_project2(cursor, user_email: str, model_name: str, old_project_name: str, new_project_name: str) -> int:
         old_Model_id, old_Model_path = Models_database.get_model_id_and_path(cursor, model_name, old_project_name, user_email)
         if not old_Model_id:
+        old_Model_id, old_Model_path = Models_database.get_model_id_and_path(cursor, model_name, old_project_name, user_email)
+        if not old_Model_id:
             return 0
+        new_Model_id, new_Model_path = Models_database.get_model_id_and_path(cursor, model_name, new_project_name, user_email)
+        if new_Model_id:
         new_Model_id, new_Model_path = Models_database.get_model_id_and_path(cursor, model_name, new_project_name, user_email)
         if new_Model_id:
             return 0
