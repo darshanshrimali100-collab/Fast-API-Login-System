@@ -716,8 +716,6 @@ class Models_database:
             )
 
         ##############
-        #project_id = Models_database.get_project_id(cursor, owner_email, payload.project_name)
-
         access_level = Models_database.get_user_access_level(
             cursor,
             model_id,
