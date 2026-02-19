@@ -152,11 +152,11 @@ async def log_and_respond(request: Request, ErrorType, status_code: int, detail)
 # -----------------------
 @app.on_event("startup")
 def startup_db():
-    init_userDB()
-    init_AdminDB()
-    init_ProjectDB()
-    init_ErrorDB()
-    init_ModelsDB()
-    init_UserModelsDB()
-    init_UserNotificationDB()
-
+    with master_connection() as cursor:
+        init_userDB(cursor)
+        init_AdminDB(cursor)
+        init_ProjectDB(cursor)
+        init_ErrorDB(cursor)
+        init_ModelsDB(cursor)
+        init_UserModelsDB(cursor)
+        init_UserNotificationDB(cursor)

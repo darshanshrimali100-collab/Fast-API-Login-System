@@ -12,3 +12,4 @@ database.sqlite3-wal
 __pycache__/
 .env
 /app/MODELS/database.py
+BACKUP

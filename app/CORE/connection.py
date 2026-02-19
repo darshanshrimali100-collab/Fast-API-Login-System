@@ -12,9 +12,15 @@ class sql_connection():
     def __init__(self, db_id, db_path):
         self.cursor = get_cursor(db_path)
         self.db_id = db_id
+        self.started_transaction = False
 
     def __enter__(self): 
-        self.cursor.execute("begin")
+        conn = self.cursor.getconnection()
+
+        if not conn.in_transaction:
+            self.cursor.execute("BEGIN")
+            self.started_transaction = True
+
         return this_cursor(self.cursor, self.db_id)
 
     def __exit__(self, exception_type, exception_value, traceback_val):

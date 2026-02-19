@@ -211,10 +211,65 @@ def Get_Notifications(
 
 @Model_router.post("/Is_Accepted")
 def is_share_model_request_accepted(
+    payload: IsAcceptedModelPayload,
     email: str = Depends(get_current_user_email),
     cursor = Depends(with_master_cursor)
 ):
     return Models_database.is_share_model_request_accepted(
         cursor=cursor,
+        payload=payload,
+        owner_email=email
+    )   
+
+@Model_router.post("/Get_Model_Backups")
+def get_model_backups(
+    payload: ModelBackupPayload,
+    email: str = Depends(get_current_user_email),
+    cursor = Depends(with_master_cursor)
+):
+    return Models_database.get_model_backups(
+        payload= payload,
+        cursor=cursor,
         owner_email=email
     )
+
+@Model_router.post("/Get_all_user_emails")
+def get_model_backups(
+    email: str = Depends(get_current_user_email),
+    cursor = Depends(with_master_cursor)
+):
+    return Models_database.get_all_user_emails(
+        cursor=cursor,
+        current_user_email=email
+    )
+
+
+#added
+@Model_router.post("/Reject_Model_Share")
+def Reject_Request_For_Model_Share(
+    payload: RejectModelSharePayload,
+    email: str = Depends(get_current_user_email),
+    cursor = Depends(with_master_cursor)
+):
+
+    return Models_database.Reject_Request_For_Model_Share(
+        payload= payload,
+        cursor=cursor,
+        current_user_email=email
+    )
+    
+
+#added
+@Model_router.post("/Cancel_Model_Share")
+def Cancel_Request_For_Model_Share(
+    payload: CancelModelSharePayload,
+    email: str = Depends(get_current_user_email),
+    cursor = Depends(with_master_cursor)
+):
+
+    return Models_database.Cancel_Request_For_Model_Share(
+        payload= payload,
+        cursor=cursor,
+        current_user_email=email
+    )
+    
