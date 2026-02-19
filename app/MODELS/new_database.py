@@ -1,4 +1,5 @@
 import sqlite3
+import sqlite3
 from typing import Optional
 from app.SCHEMA.schema_info import schema_info
 import uuid
@@ -9,7 +10,7 @@ from fastapi.responses import FileResponse
 import shutil
 from datetime import datetime, timezone
 from .models import *
-
+import json
 
 class Models_database:
 
@@ -53,6 +54,13 @@ class Models_database:
         # ---------- DB insert ----------
 
         created = Models_database.add_user_model(
+            cursor,
+            model_uid,
+            model_name,
+            project_name,
+            db_path,
+            owner_email,
+            "owner"
             cursor,
             model_uid,
             model_name,
@@ -121,9 +129,14 @@ class Models_database:
                     model_name,
                     source_project,
                     target_project
+                    cursor,
+                    owner_email,
+                    model_name,
+                    source_project,
+                    target_project
                 )
 
-                total_updated += updated
+                total_updated += updated or 0
 
         if total_updated == 0:
             raise HTTPException(
@@ -149,6 +162,8 @@ class Models_database:
         """
 
         rows = Models_database.get_models_by_email(
+            cursor,
+            user_email
             cursor,
             user_email
         )
@@ -182,6 +197,8 @@ class Models_database:
         rows = Models_database.get_models_by_user_grouped(
             cursor,
             user_email
+            cursor,
+            user_email
         )
 
         if not rows:
@@ -190,10 +207,10 @@ class Models_database:
                 detail=f"No models found for user: {user_email}"
             )
 
-        result: dict[str, list[str]] = {}
+        result: dict[str, dict[str, str]] = {}
 
-        for project_name, model_name in rows:
-            result.setdefault(project_name, []).append(model_name)
+        for project_name, model_name, access_level in rows:
+            result.setdefault(project_name, {})[model_name] = access_level
 
         return result
 
@@ -209,17 +226,20 @@ class Models_database:
         Create a new model by copying an existing model.
         """
 
-        existing_name = payload.existing_model_name.strip()
+        existing_name = payload.model_name.strip()
         new_name = payload.new_model_name.strip()
         project_name = payload.project_name.strip()
+        Save_as_From_User_Email = payload.Save_as_From_User_Email.strip()
 
+        is_user_email = Models_database.valid_email(Save_as_From_User_Email)
 
         # 1. Resolve existing model + path
         model_id, model_path = Models_database.get_model_id_and_path(
             cursor,
             existing_name,
             project_name,
-            owner_email
+            #owner_email
+            Save_as_From_User_Email if is_user_email else owner_email
         )
 
         if not model_id:
@@ -243,6 +263,7 @@ class Models_database:
         # 3. Copy DB file
         try:
             shutil.copyfile(old_db_path, new_db_path)
+            shutil.copyfile(old_db_path, new_db_path)
         except Exception as e:
             raise HTTPException(
                 status_code=500,
@@ -257,7 +278,7 @@ class Models_database:
             project_name,
             new_db_path,
             owner_email,
-            "owner"
+            "USER" if is_user_email else "owner"
         )
 
         if not created:
@@ -285,8 +306,8 @@ class Models_database:
         Rename an existing model.
         """
 
-        project_name = payload.current_project_name.strip()
-        current_model_name = payload.current_model_name.strip()
+        project_name = payload.project_name.strip()
+        current_model_name = payload.model_name.strip()
         new_model_name = payload.new_model_name.strip()
 
         # check if model to be renamed exist or not
@@ -323,6 +344,11 @@ class Models_database:
             current_model_name,
             new_model_name,
             model_id
+            cursor,
+            owner_email,
+            current_model_name,
+            new_model_name,
+            model_id
         )
 
         if not updated:
@@ -345,11 +371,15 @@ class Models_database:
         """
         Delete a model from a project.
         """
-
+        
         model_name = payload.model_name.strip()
         project_name = payload.project_name.strip()
 
         deleted = Models_database.delete_model_(
+            cursor,
+            owner_email,
+            model_name,
+            project_name
             cursor,
             owner_email,
             model_name,
@@ -381,6 +411,11 @@ class Models_database:
         target_project_name = payload.project_name.strip()
 
         updated = Models_database.move_model_to_project2(
+            cursor,
+            owner_email,
+            model_name,
+            source_project_name,
+            target_project_name
             cursor,
             owner_email,
             model_name,
@@ -466,6 +501,7 @@ class Models_database:
 
         # 2. Duplicate model check
         model_id, old_model_path = Models_database.get_model_id_and_path(
+        model_id, old_model_path = Models_database.get_model_id_and_path(
             cursor,
             model_name,
             project_name,
@@ -480,6 +516,7 @@ class Models_database:
 
         # 3. Save file to disk
         try:
+            with open(old_model_path, "wb") as buffer:
             with open(old_model_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
         finally:
@@ -502,7 +539,7 @@ class Models_database:
         owner_email: str
     ):
 
-        project_name = payload.current_project_name
+        project_name = payload.project_name
         model_name = payload.model_name
         user_comment = payload.user_comment
 
@@ -519,12 +556,42 @@ class Models_database:
                 detail=f"Model '{model_name}' not found in project '{project_name}'"
             )
 
+        #############
+       
+        access_level = Models_database.get_user_access_level(
+            cursor,
+            model_id,
+            owner_email
+        )
+
+        if access_level != "owner":
+            raise HTTPException(
+                status_code=404,
+                detail=f"you are not owner of this {model_name}, so you cannot Backup it."
+            )
+        ##############
+
         if not os.path.exists(model_path):
             raise HTTPException(
                 status_code=404,
                 detail=f"Model file does not exist on disk"
             )
 
+        # take count of no of backups of that model_id, max 10 backups of that model.
+        count = Models_database.get_backup_count_by_model(cursor, model_id) #added
+
+        backup_no = 0
+        if count >= 10:
+            backup_no  = 1
+        else:
+            backup_no = count + 1
+
+        backup_root = os.path.join(os.getcwd(), "BACKUP")
+        os.makedirs(backup_root, exist_ok=True)
+
+        backup_filename = f"{project_name}_{model_name}_{backup_no}.db"
+        backup_path = os.path.join(backup_root, backup_filename)
+        
         backup_id = Models_database.model_backup(
             cursor,
             model_id,
@@ -538,18 +605,6 @@ class Models_database:
                 detail=f"coudnt update S_modelBackups"
             )
 
-        backup_root = os.path.join(os.getcwd(), "BACKUP", project_name)
-        os.makedirs(backup_root, exist_ok=True)
-
-        backup_filename = f"{project_name}_{model_name}_{backup_id}.db"
-        backup_path = os.path.join(backup_root, backup_filename)
-
-        # check if file already exists at backup path, if yes reaise error
-        if os.path.exists(backup_path):
-            raise HTTPException(
-                status_code=404,
-                detail=f"Backup already exists"
-            )
 
         shutil.copy2(model_path, backup_path)
 
@@ -563,11 +618,12 @@ class Models_database:
     def RestoreModel(
         *,
         cursor,
-        payload: RestoreModelPayload ,
+        payload: RestoreModelPayload , # add Backup_id - DONE
         owner_email: str
     ):
-        project_name = payload.current_project_name
+        project_name = payload.project_name
         model_name = payload.model_name
+        backup_id = payload.Backup_id
 
         model_id, model_path = Models_database.get_model_id_and_path(
             cursor,
@@ -582,13 +638,27 @@ class Models_database:
                 detail=f"Model '{model_name}' not found in project '{project_name}'"
             )
 
-        backup_path = Models_database.get_backup_model_path(
+        ############
+        
+        access_level = Models_database.get_user_access_level(
             cursor,
             model_id,
+            owner_email
+        )
+        
+        if access_level != "owner":
+            raise HTTPException(
+                status_code=404,
+                detail=f"you are not owner of this {model_name}, so you cannot Restore it."
+            )
+        ###################
+
+        backup_path = Models_database.get_backup_path(
+            cursor,
+            model_id,
+            backup_id
         )
 
-        # note :-
-        #add backup_id, how do we get Backup_id, do we need to send this to user at time of /Backup ?
 
         if not backup_path:
             raise HTTPException(
@@ -602,7 +672,7 @@ class Models_database:
         os.makedirs(DATA_FOLDER, exist_ok=True)
 
         restored_filename = os.path.basename(backup_path)
-        restored_path = os.path.join(data_dir, restored_filename)
+        restored_path = os.path.join(DATA_FOLDER, restored_filename)
 
         shutil.copy2(backup_path, restored_path)
 
@@ -645,6 +715,20 @@ class Models_database:
                 )
             )
 
+        ##############
+        access_level = Models_database.get_user_access_level(
+            cursor,
+            model_id,
+            owner_email
+        )
+
+        if access_level != "owner":
+            raise HTTPException(
+                status_code=404,
+                detail=f"you are not owner of this {payload.model_name}, so you cannot Share it."
+            )
+        ################
+
         notification_params = {
             "model_name": payload.model_name,
             "project_name": payload.project_name,
@@ -655,8 +739,8 @@ class Models_database:
             cursor,
             from_user_email=fromuser_email,
             to_user_email=payload.touser_email,
-            title=payload.title,
-            message=payload.message,
+            title=f"this user {fromuser_email} Shared Model = {payload.model_name} With You",   #updated
+            message=f"this user {fromuser_email} Shared Model = {payload.model_name} With You",
             notification_type="MODEL_SHARE",
             notification_params={
                 "model_name": payload.model_name,
@@ -686,7 +770,7 @@ class Models_database:
         owner_email: str
     ):
 
-        notifications = ModelsDatabase.get_user_notifications(
+        notifications = Models_database.get_user_notifications(
             cursor,
             owner_email
         )
@@ -697,18 +781,194 @@ class Models_database:
                 detail=f"No Notifications found for user: {owner_email}"
             )
 
-        return notifications
+        return notifications # add NotificationId - Done
+
 
     @staticmethod
     def is_share_model_request_accepted(
         *,
         cursor,
+        payload: IsAcceptedModelPayload,
+        owner_email: str
+    ):
+        
+        notification_id = payload.notification_id
+        project_name = payload.project_name
+        model_name = payload.model_name
+        current_project = payload.new_project
+        From_user_email = payload.From_user_email
+
+        # check if model already exist for new user
+        model_id, model_path = Models_database.get_model_id_and_path(
+            cursor,
+            model_name,
+            project_name,
+            owner_email
+        )
+
+        if model_id:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Model '{model_name}' already exist for user in project '{project_name}'"
+            )
+        
+        # get model_id from from_user
+        new_model_id, new_model_path = Models_database.get_model_id_and_path(
+            cursor,
+            model_name,
+            project_name,
+            From_user_email
+        )
+
+        #get project id of current active project of user
+        project_id = Models_database.get_project_id(cursor, owner_email, current_project)
+
+        # add refference to s_usermodels
+        updated = Models_database.accept_model(
+            cursor,
+            new_model_id,
+            project_id,
+            owner_email,
+            model_name
+        )
+
+        row = Models_database.share_model_request_accepted(
+            cursor,
+            notification_id,
+            owner_email,
+            "1",
+            "1"
+        )
+
+        if not row:
+            raise HTTPException(
+                status_code=404,
+                detail="Notification not found or already accepted"
+            )
+
+        return {
+            "message": "Request accepted successfully",
+            "notification_id": row[0]
+        }
+
+
+    @staticmethod
+    def get_model_backups(
+        *,
+        cursor,
+        payload: ModelBackupPayload,
         owner_email: str
     ):
 
-        # note:-
-        # do i need to send notification_id with user at the time of /share, 
-        # for user to fetch wether that request is accepted or not ?
+        model_id, model_path = Models_database.get_model_id_and_path(
+            cursor,
+            payload.model_name,
+            payload.project_name,
+            owner_email
+        )
+
+        if not model_id:
+            raise HTTPException(
+                status_code=400,
+                detail="model_id is required"
+            )
+
+        backups = Models_database.FetchModelBackups(
+            cursor, 
+            model_id
+        )
+
+        if not backups:
+            raise HTTPException(
+                status_code=400,
+                detail=f"no backups found for {payload.model_name} and {payload.project_name}"
+            )
+    
+        return backups
+
+    @staticmethod
+    def get_all_user_emails(
+        cursor,
+        current_user_email: str 
+    ):
+        
+        emails =  Models_database.fetch_user_emails(
+            cursor,
+            current_user_email
+        )
+
+        if not emails:
+            raise HTTPException(
+                status_code=400,
+                detail="no users found"
+            )
+
+        return emails
+
+
+    @staticmethod
+    def Reject_Request_For_Model_Share(
+        *,
+        cursor,
+        payload: RejectModelSharePayload,
+        current_user_email: str 
+    ):
+
+        notification_id = payload.notification_id
+
+        row = Models_database.share_model_request_accepted(
+            cursor,
+            notification_id,
+            current_user_email,
+            "1",
+            "-1"
+        )
+
+        if not row:
+            raise HTTPException(
+                status_code=404,
+                detail="Notification not found or already accepted"
+            )
+
+        return {
+            "message": "Request Rejected successfully",
+            "notification_id": row[0]
+        }
+    
+    
+    #added
+    @staticmethod
+    def Cancel_Request_For_Model_Share(
+        *,
+        cursor,
+        payload: CancelModelSharePayload,
+        current_user_email: str 
+    ):
+
+        notification_id = payload.notification_id
+
+        row = Models_database.share_model_request_accepted(
+            cursor,
+            notification_id,
+            current_user_email,
+            "1",
+            "0"
+        )
+
+        if not row:
+            raise HTTPException(
+                status_code=404,
+                detail="Notification not found or already accepted"
+            )
+
+        return {
+            "message": "Request Canceled successfully",
+            "notification_id": row[0]
+        }
+
+    @staticmethod
+    def valid_email(v):
+        return isinstance(v, str) and "@" in v and "." in v
 
 
 # -----------------------   DATABASE METHODS  ----------------------
@@ -717,10 +977,9 @@ class Models_database:
     def get_models_by_email(cursor, email):
         result = cursor.execute(
             """
-            SELECT m.ModelName
-            FROM S_Models m
-            JOIN S_UserModels um ON um.ModelId = m.ModelId
-            WHERE um.UserId=?
+            SELECT ModelId, ModelName
+            FROM S_UserModels
+            WHERE UserId = ?
             """,
             (email,)
         ).fetchall()
@@ -730,36 +989,38 @@ class Models_database:
     def get_models_by_user_grouped(cursor, email):
         result = cursor.execute(
             """
-            SELECT p.ProjectName, m.ModelName
+            SELECT
+                p.ProjectName,
+                um.ModelName,
+                um.AccessLevel
             FROM S_UserModels um
             JOIN S_Projects p ON p.ProjectId = um.ProjectId
-            JOIN S_Models m ON m.ModelId = um.ModelId
-            WHERE um.UserId=?
+            WHERE um.UserId = ?
             ORDER BY p.ProjectName
             """,
             (email,)
         ).fetchall()
         return result
 
-    
+    #change - DONE, look for betterment
     @staticmethod
     def rename_model_(cursor, email, old_name, new_name, model_id) -> int:
         result = cursor.execute(
             """
-            UPDATE S_Models
-            SET ModelName=?
-            WHERE ModelName=? AND OwnerId=? AND ModelId = ?
+            UPDATE S_UserModels
+            SET ModelName = ?
+            WHERE ModelId  = ?
+              AND UserId   = ?
+              AND ModelName = ?
+            RETURNING ModelId
             """,
-            (new_name, old_name, email, model_id)
+            (new_name, model_id, email, old_name)
         ).fetchone()
         return result
 
     @staticmethod
     def delete_model_(cursor, email, model_name, project_name) -> int:
-        project_id =Models_database.get_project_id(cursor, email, project_name)
-
-        if not project_id:
-            return 0
+        
     
         model_id, Model_path = Models_database.get_model_id_and_path(
             cursor,
@@ -770,45 +1031,76 @@ class Models_database:
 
         if not model_id:
             return 0
-        
-        cursor.execute(
+
+        access_level = cursor.execute(
             """
             DELETE FROM S_UserModels
-            WHERE UserId=? AND ProjectId=? AND ModelId= ?
+            WHERE UserId=? AND ModelId= ?
+            RETURNING AccessLevel
             """,
-            (email, project_id, model_id)
-        )
+            (email, model_id)
+        ).fetchone()[0]
 
-        still_used = cursor.execute(
-            "SELECT 1 FROM S_UserModels WHERE ModelId = ? LIMIT 1",
-            (model_id,)
-        ).fetchone()
-    
-        if still_used:
+
+        if access_level != "owner":
             return 1
 
+        #delete from s_moddels
         cursor.execute(
-            "DELETE FROM S_Models WHERE ModelId = ? AND OwnerId = ?",
-            (model_id, email)
+            "DELETE FROM S_Models WHERE ModelId = ?",
+            (model_id,)
         )
+        
+        #delete all its referrences from s_usermodels
+        cursor.execute(
+            "DELETE FROM S_UserModels WHERE ModelId = ?",
+            (model_id,)
+        )
+
+        #fetch all backuppaths of model_id
+        paths = cursor.execute(
+                    " SELECT BackupPath FROM S_ModelBackups WHERE ModelId = ?",
+                    (model_id,)
+                ).fetchall()
+
+        #delete all its backups
+        cursor.execute(
+            "DELETE FROM S_ModelBackups WHERE ModelId = ?",
+            (model_id,)
+        )
+
+        #delete all backup files of model_id
+        for (path,) in paths:
+            if path and os.path.exists(path):
+                os.remove(path)
+
+        #delete .db file as well, here.
+        if os.path.exists(Model_path):
+            os.remove(Model_path)
+            print("file deleted")
 
         return 1
 
-
+    #change - DONE
     @staticmethod
     def get_model_id_and_path(cursor, model_name: str,
                             project_name: str,
                             user_name: str):
-        query = """select S_Models.ModelId, S_Models.ModelPath
-                    from S_UserModels, S_Projects, S_Models
-                    WHERE S_UserModels.UserId = S_Projects.UserEmail
-                    AND   S_UserModels.ProjectId = S_Projects.ProjectId
-                    AND   S_UserModels.ModelId = S_Models.ModelId
-                    AND   S_Projects.ProjectName = ?
-                    AND   S_Models.ModelName = ?
-                    AND   S_UserModels.UserId = ?"""
+        query = """SELECT S_Models.ModelId, S_Models.ModelPath
+                FROM S_UserModels, S_Projects, S_Models
+                WHERE S_UserModels.ProjectId = S_Projects.ProjectId
+                  AND S_UserModels.ModelId  = S_Models.ModelId
+                  AND S_Projects.UserEmail  = S_UserModels.UserId
+                  AND S_Projects.ProjectName = ?
+                  AND S_UserModels.ModelName = ?
+                  AND S_UserModels.UserId    = ?
+                LIMIT 1"""
         row = cursor.execute(query, (project_name, model_name, user_name)).fetchone()
+        print(f"******************{model_name}*****************")
+        print(f"******************{user_name}*****************")
         if row:
+            return row[0], row[1]
+        return None, None
             return row[0], row[1]
         return None, None
 
@@ -817,7 +1109,11 @@ class Models_database:
     def move_model_to_project2(cursor, user_email: str, model_name: str, old_project_name: str, new_project_name: str) -> int:
         old_Model_id, old_Model_path = Models_database.get_model_id_and_path(cursor, model_name, old_project_name, user_email)
         if not old_Model_id:
+        old_Model_id, old_Model_path = Models_database.get_model_id_and_path(cursor, model_name, old_project_name, user_email)
+        if not old_Model_id:
             return 0
+        new_Model_id, new_Model_path = Models_database.get_model_id_and_path(cursor, model_name, new_project_name, user_email)
+        if new_Model_id:
         new_Model_id, new_Model_path = Models_database.get_model_id_and_path(cursor, model_name, new_project_name, user_email)
         if new_Model_id:
             return 0
@@ -828,12 +1124,15 @@ class Models_database:
                     WHERE ModelId = ?
                         AND UserId = ?
                         AND ProjectId = ?
+                    RETURNING ModelId
                 """
-        cursor.execute( query,
+        row = cursor.execute( query,
             (new_project_id, old_Model_id, user_email, old_project_id)
-        )                
+        ).fetchone()  
 
+        return 1 if row else 0              
 
+    #change - DONE, Check for errors
     @staticmethod
     def add_user_model(
         cursor,
@@ -857,16 +1156,14 @@ class Models_database:
             """
             INSERT INTO S_Models (
                 ModelUID,
-                ModelName,
                 ModelPath,
                 OwnerId
             )
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?)
             RETURNING ModelId
             """,
             (
                 model_uid,
-                model_name,
                 db_path,
                 user_name
             )
@@ -879,11 +1176,12 @@ class Models_database:
                 UserId,
                 ProjectId,
                 AccessLevel,
+                ModelName,
                 GrantedAt
             )
-            VALUES (?, ?, ?, ?, datetime('now'))
+            VALUES (?, ?, ?, ?, ?, datetime('now'))
             """,
-            (model_id, user_name, project_id, role)
+            (model_id, user_name, project_id, role, model_name)
         )
 
         return True
@@ -904,11 +1202,18 @@ class Models_database:
     @staticmethod
     def model_backup(
         cursor,
-        *,
         model_id: int,
         backup_text: str,
         backup_path: str
     ):
+        cursor.execute(
+            """
+                DELETE FROM S_ModelBackups
+                WHERE BackupPath = ?
+            """,
+            (backup_path,)
+        )
+
         row = cursor.execute(
             """
             INSERT INTO S_ModelBackups (
@@ -928,16 +1233,18 @@ class Models_database:
     @staticmethod
     def get_backup_path(
         cursor,
-        model_id: int
+        model_id: int,
+        backup_id: str
     ):
 
         row = cursor.execute(
             """
             SELECT BackupPath
-            FROM S_backupmodel
+            FROM S_ModelBackups
             WHERE ModelId = ?
+            AND BackupId = ?
             """,
-            (model_id,)
+            (model_id, backup_id)
         ).fetchone()
 
         return row[0] if row else None
@@ -997,15 +1304,151 @@ class Models_database:
 
         rows = cursor.execute(
             """
-                SELECT Message
+               SELECT
+                NotificationId,
+                Message,
+                FromUserEmail,
+                json_extract(NotificationParams, '$.project_name') AS ProjectName,
+                json_extract(NotificationParams, '$.model_name') AS ModelName,
+                IsRead,
+                IsAccepted
             FROM S_UserNotifications
             WHERE
                 ToUserEmail = ?
-                AND IsRead = 0
-                AND IsAccepted = 0
+                AND (IsRead = 0 OR IsAccepted = 0)
             ORDER BY CreatedAt DESC
+
             """,
             (user_email,)
         ).fetchall()
 
-        return [row["Message"] for row in rows]
+
+        return {
+            row[0]: {
+                "message": row[1],
+                "from_user": row[2],
+                "project_name": row[3],
+                "model_name": row[4],
+                "Is_Read": row[5],  #updated
+                "Is_Accepted": row[6]
+            }
+            for row in rows
+        }
+
+
+
+    @staticmethod
+    def FetchModelBackups(
+        cursor,
+        model_id: int
+    ):
+
+        rows = cursor.execute(
+            """
+            SELECT BackupId, BackupText, CreatedAt
+            FROM S_ModelBackups
+            WHERE ModelId = ?
+            ORDER BY CreatedAt DESC
+            """,
+            (model_id,)
+        ).fetchall()
+
+        if not rows:
+            return {
+                "message": "No backups found for this model",
+                "backups": []
+            }
+
+        return {
+            "model_id": model_id,
+            "backups": [
+                {
+                    "backup_id": row[0],
+                    "backup_text": row[1],
+                    "backup_date": row[2]
+                }
+                for row in rows
+            ]
+        }
+
+    @staticmethod
+    def fetch_user_emails(cursor, current_user_email: str):
+
+        rows = cursor.execute(
+            """
+            SELECT UserEmail
+            FROM S_Users
+            WHERE UserEmail != ?
+            """,
+            (current_user_email,)
+        ).fetchall()
+
+        return [row[0] for row in rows]
+
+
+    @staticmethod
+    def share_model_request_accepted(cursor, notification_id, email, IsRead, IsAccepted):
+        row = cursor.execute(
+            """
+            UPDATE S_UserNotifications
+            SET
+                IsAccepted = ?,
+                IsRead = ?,
+                ReadAt = datetime('now')
+            WHERE NotificationId = ?
+            AND ToUserEmail = ?
+            AND IsAccepted = 0
+            RETURNING NotificationId
+            """,
+            (IsAccepted, IsRead, notification_id, email)
+        ).fetchone()
+
+        return row
+
+
+    @staticmethod
+    def accept_model(cursor, model_id, project_id, new_email, model_name):
+        row = cursor.execute(
+            """
+            INSERT INTO S_UserModels (
+                ModelId,
+                UserId,
+                ProjectId,
+                AccessLevel,
+                ModelName
+            )
+            VALUES (?, ?, ?, 'USER', ?)
+            RETURNING ModelId;
+            """,
+            (model_id, new_email, project_id, model_name)
+        ).fetchone()
+
+        return row
+
+
+    @staticmethod
+    def get_user_access_level(cursor, model_id, user_email):
+        row = cursor.execute(
+            """
+            SELECT AccessLevel
+            FROM S_UserModels
+            WHERE ModelId = ?
+              AND UserId = ?
+            """,
+            (model_id, user_email)
+        ).fetchone()
+
+        return row[0] if row else None
+
+    @staticmethod
+    def get_backup_count_by_model(cursor, model_id):
+        row = cursor.execute(
+            """
+            SELECT COUNT(*) 
+            FROM S_ModelBackups
+            WHERE ModelId = ?
+            """,
+            (model_id,)
+        ).fetchone()
+
+        return row[0] if row else 0
