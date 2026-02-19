@@ -1,8 +1,8 @@
 from app.CORE.connection import master_connection
 from typing import Generator
 
-def init_userDB():
-    with master_connection() as cursor:
+def init_userDB(cursor):
+    
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS S_Users (
                 UserEmail TEXT PRIMARY KEY UNIQUE,
@@ -41,8 +41,8 @@ def init_userDB():
             )
             
 
-def init_AdminDB():
-    with master_connection() as cursor:
+def init_AdminDB(cursor):
+    
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS S_UserRoles (
                 RoleId INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,8 +69,8 @@ def init_AdminDB():
             )
 
 
-def init_ProjectDB():
-    with master_connection() as cursor:
+def init_ProjectDB(cursor):
+    
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS S_Projects (
                 ProjectId INTEGER PRIMARY KEY,
@@ -98,8 +98,8 @@ def init_ProjectDB():
             )
 
 
-def init_ErrorDB():
-    with master_connection() as cursor:
+def init_ErrorDB(cursor):
+    
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS S_UserErrors (
                 MethodName TEXT NOT NULL,
@@ -111,14 +111,15 @@ def init_ErrorDB():
             )
         """)
 
-def init_UserModelsDB():
-    with master_connection() as cursor:
+def init_UserModelsDB(cursor):
+    
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS S_UserModels (
                 ModelId     INTEGER,
                 UserId      TEXT,
                 ProjectId   INTEGER,
                 AccessLevel TEXT    NOT NULL,
+                ModelName TEXT      NOT NULL,
                 GrantedAt   TEXT    NOT NULL
                             DEFAULT (datetime('now')),
                 PRIMARY KEY (
@@ -130,14 +131,13 @@ def init_UserModelsDB():
         """)
 
 
-def init_ModelsDB():
-    with master_connection() as cursor:
+def init_ModelsDB(cursor):
+    
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS S_Models (
                 ModelId     INTEGER PRIMARY KEY AUTOINCREMENT,
                 ModelUID    TEXT    NOT NULL
                             UNIQUE,
-                ModelName   TEXT,
                 ModelPath   TEXT,
                 CreatedAt   TEXT    NOT NULL
                             DEFAULT (datetime('now')),
@@ -155,10 +155,8 @@ def init_ModelsDB():
             )
         """)
 
-
-
-def init_UserNotificationDB():
-    with master_connection() as cursor:
+def init_UserNotificationDB(cursor):
+    
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS S_UserNotifications (
                 NotificationId INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -170,10 +168,16 @@ def init_UserNotificationDB():
                 NotificationParams TEXT,
                 IsRead INTEGER DEFAULT 0,
                 CreatedAt TEXT NOT NULL DEFAULT (datetime('now')),
-                ReadAt TEXT DEFAULT NULL
+                ReadAt TEXT DEFAULT NULL,
+                IsAccepted INTEGER DEFAULT 0
             )
         """)
 
+def run(cursor):
+    #cursor.execute("ALTER TABLE S_UserModels ADD COLUMN ModelName TEXT")
+    #cursor.execute("UPDATE S_UserModels SET ModelName = ( SELECT ModelName FROM S_Models WHERE S_Models.ModelId = S_UserModels.ModelId )")
+    #cursor.execute("ALTER TABLE S_Models DROP COLUMN ModelName")
+    #cursor.execute("DELETE FROM S_UserModels WHERE ModelName IS NULL")
 
 def with_master_cursor() -> Generator:
     #try:
