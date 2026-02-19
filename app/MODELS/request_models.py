@@ -2,11 +2,14 @@ from fastapi import APIRouter, Response, Depends, UploadFile, File
 from .new_database import Models_database
 from fastapi import APIRouter, Response, Depends, UploadFile, File
 from .new_database import Models_database
+from fastapi import APIRouter, Response, Depends, UploadFile, File
+from .new_database import Models_database
 from app.PROJECTS.modals import *
 from app.CORE.utility import *
 from app.CORE.DB import with_master_cursor
 from app.SCHEMA.schema_info import schema_info
 from .models import *
+from fastapi.responses import FileResponse
 from fastapi.responses import FileResponse
 
 Model_router = APIRouter(prefix="/models")
@@ -42,6 +45,8 @@ def add_new_model(
 
     
 
+    
+
 @Model_router.post("/add_existing_model")
 def add_existing_model(
     payload: AssignModelsRequest,
@@ -53,6 +58,7 @@ def add_existing_model(
         payload=payload,
         owner_email=email
     )
+    
     
 
 
@@ -66,6 +72,7 @@ def get_user_models(
         user_email=email
     )
     
+    
 
 @Model_router.post("/get_user_models_by_project")
 def get_user_models_by_project(
@@ -76,6 +83,7 @@ def get_user_models_by_project(
         cursor=cursor,
         user_email=email
     )
+    
     
 
 @Model_router.post("/save_as_model")
@@ -89,6 +97,7 @@ def save_as_model(
         payload=payload,
         owner_email=email
     )
+
 
 
 #
@@ -105,6 +114,7 @@ def rename_model(
     )
 
 
+
 @Model_router.post("/delete_model")
 def delete_model(
     payload: DeleteModelRequest,
@@ -116,6 +126,7 @@ def delete_model(
         payload=payload,
         owner_email=email
     )
+
 
 
 @Model_router.post("/move_to_project")
@@ -132,6 +143,8 @@ def move_model_to_project(
 
 
 @Model_router.post("/download_model", response_class=FileResponse)
+
+@Model_router.post("/download_model", response_class=FileResponse)
 def download_model(
     payload: DownloadModelRequest,
     email: str = Depends(get_current_user_email),
@@ -142,6 +155,7 @@ def download_model(
         payload=payload,
         owner_email=email
     )
+
 
 
 @Model_router.post("/upload")
@@ -211,10 +225,65 @@ def Get_Notifications(
 
 @Model_router.post("/Is_Accepted")
 def is_share_model_request_accepted(
+    payload: IsAcceptedModelPayload,
     email: str = Depends(get_current_user_email),
     cursor = Depends(with_master_cursor)
 ):
     return Models_database.is_share_model_request_accepted(
         cursor=cursor,
+        payload=payload,
+        owner_email=email
+    )   
+
+@Model_router.post("/Get_Model_Backups")
+def get_model_backups(
+    payload: ModelBackupPayload,
+    email: str = Depends(get_current_user_email),
+    cursor = Depends(with_master_cursor)
+):
+    return Models_database.get_model_backups(
+        payload= payload,
+        cursor=cursor,
         owner_email=email
     )
+
+@Model_router.post("/Get_all_user_emails")
+def get_model_backups(
+    email: str = Depends(get_current_user_email),
+    cursor = Depends(with_master_cursor)
+):
+    return Models_database.get_all_user_emails(
+        cursor=cursor,
+        current_user_email=email
+    )
+
+
+#added
+@Model_router.post("/Reject_Model_Share")
+def Reject_Request_For_Model_Share(
+    payload: RejectModelSharePayload,
+    email: str = Depends(get_current_user_email),
+    cursor = Depends(with_master_cursor)
+):
+
+    return Models_database.Reject_Request_For_Model_Share(
+        payload= payload,
+        cursor=cursor,
+        current_user_email=email
+    )
+    
+
+#added
+@Model_router.post("/Cancel_Model_Share")
+def Cancel_Request_For_Model_Share(
+    payload: CancelModelSharePayload,
+    email: str = Depends(get_current_user_email),
+    cursor = Depends(with_master_cursor)
+):
+
+    return Models_database.Cancel_Request_For_Model_Share(
+        payload= payload,
+        cursor=cursor,
+        current_user_email=email
+    )
+    
