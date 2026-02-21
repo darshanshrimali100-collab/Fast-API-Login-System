@@ -173,11 +173,13 @@ def init_UserNotificationDB(cursor):
             )
         """)
 
+
 def run(cursor):
     #cursor.execute("ALTER TABLE S_UserModels ADD COLUMN ModelName TEXT")
     #cursor.execute("UPDATE S_UserModels SET ModelName = ( SELECT ModelName FROM S_Models WHERE S_Models.ModelId = S_UserModels.ModelId )")
     #cursor.execute("ALTER TABLE S_Models DROP COLUMN ModelName")
     #cursor.execute("DELETE FROM S_UserModels WHERE ModelName IS NULL")
+    pass
 
 def with_master_cursor() -> Generator:
     #try:
