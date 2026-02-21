@@ -143,8 +143,6 @@ def move_model_to_project(
 
 
 @Model_router.post("/download_model", response_class=FileResponse)
-
-@Model_router.post("/download_model", response_class=FileResponse)
 def download_model(
     payload: DownloadModelRequest,
     email: str = Depends(get_current_user_email),
