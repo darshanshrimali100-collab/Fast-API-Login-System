@@ -13,3 +13,9 @@ __pycache__/
 .env
 /app/MODELS/database.py
 BACKUP
+tests
+.hypothesis
+.pytest_cache
+.coverage
+notes.txt
+pytest.ini

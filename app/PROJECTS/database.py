@@ -1,6 +1,7 @@
 from app.CORE.connection import master_connection
 from app.CORE.DB import with_master_cursor
 from app.MODELS.new_database import *
+import time
 
 class PROJECT_COL:
     ProjectId = 0
@@ -183,6 +184,7 @@ class Projects_database:
             result = 0
 
             for (model,) in models:
+                time.sleep(0.2)
                 result = Models_database.delete_model_(cursor, user_email, model, project_name)
 
             if result == 0:
